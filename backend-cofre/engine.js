@@ -11,6 +11,39 @@ var API_BASE        = "https://api.mercadolibre.com";
 var _cacheCategoria = {}; // cache de árvore de categorias, por execução
 
 // =============================================================================
+// LOGGER 360 — Caixa Preta de Telemetria
+// Buffer em memória acumulado durante a execução e gravado em lote no final.
+// LOG_SHEET_ID deve estar em ScriptProperties para ativação; se ausente, é no-op.
+// =============================================================================
+var _logs = [];
+
+function _log(msg) {
+  _logs.push(msg);
+}
+
+/**
+ * Grava todos os logs acumulados em uma única operação batch (setValues) na planilha
+ * de telemetria. Limpa o buffer mesmo que a gravação falhe.
+ */
+function flushLogs(idLote) {
+  if (_logs.length === 0) return;
+  var sheetId = PropertiesService.getScriptProperties().getProperty("LOG_SHEET_ID");
+  if (!sheetId) { _logs = []; return; }
+  try {
+    var ss    = SpreadsheetApp.openById(sheetId);
+    var sheet = ss.getSheetByName("LOGS");
+    if (!sheet) sheet = ss.insertSheet("LOGS");
+    var ts   = Utilities.formatDate(new Date(), "America/Sao_Paulo", "yyyy-MM-dd HH:mm:ss");
+    var data = _logs.map(function(msg) { return [ts, idLote, msg]; });
+    sheet.getRange(sheet.getLastRow() + 1, 1, data.length, 3).setValues(data);
+  } catch(e) {
+    console.error("flushLogs: falha ao gravar — " + e.message);
+  } finally {
+    _logs = [];
+  }
+}
+
+// =============================================================================
 // 1. FETCH BLINDADO
 // =============================================================================
 function fetchComStatus(url, headers, maxTentativas) {
@@ -273,8 +306,10 @@ function _multigetItens(ids, headers, tentarRefresh) {
   var res = fetchComStatus(url, headers);
 
   if (res.status === 401) {
+    _log("MULTIGET 401 — acionando refresh");
     if (!tentarRefresh()) return null;
     res = fetchComStatus(url, headers);
+    _log("MULTIGET retry pós-401 → status " + res.status);
   }
 
   var map = {};
@@ -307,17 +342,23 @@ function _fetchAllPerformance(ids, headers, tentarRefresh) {
   var resps = UrlFetchApp.fetchAll(buildRequests());
 
   // 401: token expirado — renova e repete todas as requisições
-  if (resps.some(function(r) { return r.getResponseCode() === 401; })) {
+  var count401 = resps.filter(function(r) { return r.getResponseCode() === 401; }).length;
+  if (count401 > 0) {
+    _log("FETCH_ALL_PERF 401: " + count401 + "/" + ids.length + " itens — acionando refresh");
     if (tentarRefresh()) {
       resps = UrlFetchApp.fetchAll(buildRequests()); // headers já atualizado in-place
+      _log("FETCH_ALL_PERF retry pós-401 concluído");
     } else {
+      _log("FETCH_ALL_PERF refresh falhou — performance omitida para todo o lote");
       console.warn("_fetchAllPerformance: refresh falhou — performance omitida para o lote.");
       return ids.reduce(function(m, id) { m[id] = null; return m; }, {});
     }
   }
 
   // 429: sleep 2s e repete somente os índices que falharam
-  if (resps.some(function(r) { return r.getResponseCode() === 429; })) {
+  var count429 = resps.filter(function(r) { return r.getResponseCode() === 429; }).length;
+  if (count429 > 0) {
+    _log("FETCH_ALL_PERF 429: " + count429 + "/" + ids.length + " itens — sleep 2s e retry seletivo");
     Utilities.sleep(2000);
     var retryReqs = [], retryIdxs = [];
     resps.forEach(function(r, i) {
@@ -328,6 +369,7 @@ function _fetchAllPerformance(ids, headers, tentarRefresh) {
     });
     var retryResps = UrlFetchApp.fetchAll(retryReqs);
     retryIdxs.forEach(function(origIdx, j) { resps[origIdx] = retryResps[j]; });
+    _log("FETCH_ALL_PERF retry de " + retryIdxs.length + " itens concluído");
   }
 
   var map = {};
@@ -357,6 +399,12 @@ function processarRaioX_Backend(payload) {
     return { error: "Payload inválido: access_token, refresh_token, user_id e ids são obrigatórios.", rows: [] };
   }
 
+  // Inicia a caixa preta: ID curto do lote (últimos 4 chars do primeiro ID) e timer global
+  _logs  = [];
+  var idLote = String(ids[0]).slice(-4);
+  var tTotal = Date.now();
+  _log("INÍCIO: " + ids.length + " IDs | " + new Date().toISOString());
+
   var headers         = { "Authorization": "Bearer " + token };
   var tokensRenovados = false;
   var novosTokens     = null;
@@ -376,127 +424,142 @@ function processarRaioX_Backend(payload) {
     return true;
   };
 
-  // ── Probe: valida o token ANTES dos preloads para evitar dados vazios por 401 ──
-  var probe = fetchComStatus(API_BASE + "/users/" + userId, headers);
-  if (probe.status === 401) {
-    if (!tentarRefresh()) {
-      return { error: "Token inválido e refresh falhou. Reconecte a conta.", rows: [] };
-    }
-  }
-
-  // ── Preloads (headers já está com token válido após o probe) ──────────────
-  var baseVendas        = preCarregarVendas30D(userId, headers);
-  var baseVisitasTotais = preCarregarVisitasTotais(ids, headers);
-
-  // ── Multiget: 1 chamada para dados de todos os IDs (vs N sequenciais) ────
-  var itemMap = _multigetItens(ids, headers, tentarRefresh);
-  if (!itemMap) return { error: "Token expirado — refresh falhou durante o multiget.", rows: [] };
-
-  // ── fetchAll: performance de todos os IDs em paralelo (vs N sequenciais) ─
-  var perfMap = _fetchAllPerformance(ids, headers, tentarRefresh);
-
-  var rows = [];
-
-  // ── Loop de processamento ─────────────────────────────────────────────────
-  for (var k = 0; k < ids.length; k++) {
-    var itemID = String(ids[k]).trim();
-
-    try {
-      // Dados básicos do multiget (acesso O(1) ao hash map pré-carregado)
-      var det = itemMap[itemID];
-      if (!det || det.error) {
-        rows.push(_rowErro(itemID, "Item indisponível no catálogo"));
-        continue;
+  try {
+    // ── Probe: valida o token ANTES dos preloads para evitar dados vazios por 401 ──
+    var probe = fetchComStatus(API_BASE + "/users/" + userId, headers);
+    if (probe.status === 401) {
+      _log("PROBE 401 — acionando refresh");
+      if (!tentarRefresh()) {
+        _log("PROBE refresh falhou — abortando lote");
+        return { error: "Token inválido e refresh falhou. Reconecte a conta.", rows: [] };
       }
+    }
 
-      // Performance do fetchAll paralelo (null = sem dados de performance)
-      var perf    = perfMap[itemID] || null;
-      var temPerf = !!(perf && perf.buckets);
+    // ── Preloads (headers já está com token válido após o probe) ──────────────
+    var baseVendas        = preCarregarVendas30D(userId, headers);
+    var baseVisitasTotais = preCarregarVisitasTotais(ids, headers);
 
-      var visitas = getVisitasCompletas(itemID, headers, baseVisitasTotais);
+    // ── Multiget: 1 chamada para dados de todos os IDs (vs N sequenciais) ────
+    var t0      = Date.now();
+    var itemMap = _multigetItens(ids, headers, tentarRefresh);
+    _log("MULTIGET: " + (Date.now() - t0) + "ms — " + Object.keys(itemMap || {}).length + "/" + ids.length + " itens retornados");
+    if (!itemMap) return { error: "Token expirado — refresh falhou durante o multiget.", rows: [] };
 
-      // (4) Total histórico de pedidos
-      var pedidosGeral = getTotalPedidos(itemID, userId, headers);
+    // ── fetchAll: performance de todos os IDs em paralelo (vs N sequenciais) ─
+    t0 = Date.now();
+    var perfMap = _fetchAllPerformance(ids, headers, tentarRefresh);
+    _log("FETCH_ALL_PERF: " + (Date.now() - t0) + "ms — " + ids.length + " itens processados");
 
-      // Vendas 7/15/30d do pré-carregamento
-      var vendas = baseVendas[itemID] || { p7:0, p15:0, p30:0, u7:0, u15:0, u30:0 };
-      var uTotal = det.sold_quantity || 0;
+    // ── Loop de processamento ─────────────────────────────────────────────────
+    var rows  = [];
+    var tLoop = Date.now();
 
-      // Pendências e score de performance
-      var pends = [];
-      var score = 0;
-      if (temPerf) {
-        score = parseInt(perf.score || 0);
-        (perf.buckets || []).forEach(function(b) {
-          (b.variables || []).forEach(function(v) {
-            if (v.status !== "COMPLETED" && v.status !== "OK" && v.title) pends.push(v.title);
+    for (var k = 0; k < ids.length; k++) {
+      var itemID = String(ids[k]).trim();
+
+      try {
+        // Dados básicos do multiget (acesso O(1) ao hash map pré-carregado)
+        var det = itemMap[itemID];
+        if (!det || det.error) {
+          rows.push(_rowErro(itemID, "Item indisponível no catálogo"));
+          continue;
+        }
+
+        // Performance do fetchAll paralelo (null = sem dados de performance)
+        var perf    = perfMap[itemID] || null;
+        var temPerf = !!(perf && perf.buckets);
+
+        var visitas = getVisitasCompletas(itemID, headers, baseVisitasTotais);
+
+        // Total histórico de pedidos
+        var pedidosGeral = getTotalPedidos(itemID, userId, headers);
+
+        // Vendas 7/15/30d do pré-carregamento
+        var vendas = baseVendas[itemID] || { p7:0, p15:0, p30:0, u7:0, u15:0, u30:0 };
+        var uTotal = det.sold_quantity || 0;
+
+        // Pendências e score de performance
+        var pends = [];
+        var score = 0;
+        if (temPerf) {
+          score = parseInt(perf.score || 0);
+          (perf.buckets || []).forEach(function(b) {
+            (b.variables || []).forEach(function(v) {
+              if (v.status !== "COMPLETED" && v.status !== "OK" && v.title) pends.push(v.title);
+            });
           });
-        });
+        }
+
+        var statusML  = (det.status || "N/A").toUpperCase();
+        var squadAcao = inteligencia360(
+          vendas, uTotal, visitas,
+          det.available_quantity || 0, statusML, score, pends, temPerf
+        );
+
+        // Checklist de qualidade (13 critérios)
+        var c_video, c_compat, c_promo, c_titulo, c_caract, c_fotos,
+            c_codigo, c_tempo, c_estoque, c_preco, c_flex, c_frete, c_parcel;
+
+        if (statusML === "PAUSED") {
+          c_video = c_compat = c_promo = c_titulo = c_caract = c_fotos =
+          c_codigo = c_tempo = c_estoque = c_preco = c_flex = c_frete = c_parcel = "⏸️ Pausado";
+        } else {
+          c_video   = statusPend(pends, ["clipe", "vídeo", "video"],                     temPerf);
+          c_compat  = statusPend(pends, ["compatível", "veículo", "compatibilidade"],    temPerf);
+          c_promo   = statusPend(pends, ["promoção"],                                    temPerf);
+          c_titulo  = statusPend(pends, ["título"],                                      temPerf);
+          c_caract  = statusPend(pends, ["características"],                             temPerf);
+          c_fotos   = statusPend(pends, ["fotos"],                                       temPerf);
+          c_codigo  = statusPend(pends, ["código universal", "ean"],                     temPerf);
+          c_tempo   = statusPend(pends, ["tempo de disponibilidade", "disponibilidade"], temPerf);
+          c_estoque = statusPend(pends, ["mais estoque"],                                temPerf);
+          c_preco   = statusPend(pends, ["baixe o preço", "recuperar a exposição"],      temPerf);
+          c_flex    = statusPend(pends, ["envios flex", "mesmo dia"],                    temPerf);
+          c_frete   = statusPend(pends, ["frete grátis"],                                temPerf);
+          c_parcel  = statusPend(pends, ["parcelamento", "sem juros"],                   temPerf);
+        }
+
+        // Array de 40 colunas — idêntico ao layout da aba DESEMPENHO (A→AN)
+        var row = [
+          "360 GESTÃO",                                          // A  CONTA
+          itemID,                                                // B  ID
+          getSKU(det),                                           // C  SKU
+          det.title || "N/A",                                    // D  TÍTULO
+          statusML,                                              // E  STATUS
+          getCategoryTree(det.category_id, headers),             // F  CATEGORIA
+          squadAcao[0],                                          // G  SQUAD 360
+          squadAcao[1],                                          // H  AÇÃO RECOMENDADA
+          pedidosGeral,                                          // I  VENDAS GERAL (PEDIDOS)
+          uTotal,                                                // J  UNIDADES GERAL
+          visitas.total,                                         // K  VISITAS GERAL
+          calcConv(pedidosGeral, visitas.total),                 // L  CONV. GERAL
+          vendas.p30, vendas.u30, visitas.v30, calcConv(vendas.p30, visitas.v30), // M–P  30d
+          vendas.p15, vendas.u15, visitas.v15, calcConv(vendas.p15, visitas.v15), // Q–T  15d
+          vendas.p7,  vendas.u7,  visitas.v7,  calcConv(vendas.p7,  visitas.v7),  // U–X  7d
+          det.available_quantity || 0,                           // Y  ESTOQUE
+          det.price || 0,                                        // Z  PREÇO
+          temPerf ? score + "%" : "Sem acesso API",              // AA SCORE
+          c_video, c_compat, c_promo, c_titulo, c_caract, c_fotos, c_codigo,      // AB–AH
+          c_tempo, c_estoque, c_preco, c_flex, c_frete, c_parcel                  // AI–AN
+        ];
+
+        rows.push(row);
+
+      } catch (err) {
+        rows.push(_rowErro(itemID, err.message));
       }
-
-      var statusML  = (det.status || "N/A").toUpperCase();
-      var squadAcao = inteligencia360(
-        vendas, uTotal, visitas,
-        det.available_quantity || 0, statusML, score, pends, temPerf
-      );
-
-      // Checklist de qualidade (13 critérios)
-      var c_video, c_compat, c_promo, c_titulo, c_caract, c_fotos,
-          c_codigo, c_tempo, c_estoque, c_preco, c_flex, c_frete, c_parcel;
-
-      if (statusML === "PAUSED") {
-        c_video = c_compat = c_promo = c_titulo = c_caract = c_fotos =
-        c_codigo = c_tempo = c_estoque = c_preco = c_flex = c_frete = c_parcel = "⏸️ Pausado";
-      } else {
-        c_video   = statusPend(pends, ["clipe", "vídeo", "video"],                     temPerf);
-        c_compat  = statusPend(pends, ["compatível", "veículo", "compatibilidade"],    temPerf);
-        c_promo   = statusPend(pends, ["promoção"],                                    temPerf);
-        c_titulo  = statusPend(pends, ["título"],                                      temPerf);
-        c_caract  = statusPend(pends, ["características"],                             temPerf);
-        c_fotos   = statusPend(pends, ["fotos"],                                       temPerf);
-        c_codigo  = statusPend(pends, ["código universal", "ean"],                     temPerf);
-        c_tempo   = statusPend(pends, ["tempo de disponibilidade", "disponibilidade"], temPerf);
-        c_estoque = statusPend(pends, ["mais estoque"],                                temPerf);
-        c_preco   = statusPend(pends, ["baixe o preço", "recuperar a exposição"],      temPerf);
-        c_flex    = statusPend(pends, ["envios flex", "mesmo dia"],                    temPerf);
-        c_frete   = statusPend(pends, ["frete grátis"],                                temPerf);
-        c_parcel  = statusPend(pends, ["parcelamento", "sem juros"],                   temPerf);
-      }
-
-      // Array de 40 colunas — idêntico ao layout da aba DESEMPENHO (A→AN)
-      var row = [
-        "360 GESTÃO",                                          // A  CONTA
-        itemID,                                                // B  ID
-        getSKU(det),                                           // C  SKU
-        det.title || "N/A",                                    // D  TÍTULO
-        statusML,                                              // E  STATUS
-        getCategoryTree(det.category_id, headers),             // F  CATEGORIA
-        squadAcao[0],                                          // G  SQUAD 360
-        squadAcao[1],                                          // H  AÇÃO RECOMENDADA
-        pedidosGeral,                                          // I  VENDAS GERAL (PEDIDOS)
-        uTotal,                                                // J  UNIDADES GERAL
-        visitas.total,                                         // K  VISITAS GERAL
-        calcConv(pedidosGeral, visitas.total),                 // L  CONV. GERAL
-        vendas.p30, vendas.u30, visitas.v30, calcConv(vendas.p30, visitas.v30), // M–P  30d
-        vendas.p15, vendas.u15, visitas.v15, calcConv(vendas.p15, visitas.v15), // Q–T  15d
-        vendas.p7,  vendas.u7,  visitas.v7,  calcConv(vendas.p7,  visitas.v7),  // U–X  7d
-        det.available_quantity || 0,                           // Y  ESTOQUE
-        det.price || 0,                                        // Z  PREÇO
-        temPerf ? score + "%" : "Sem acesso API",              // AA SCORE
-        c_video, c_compat, c_promo, c_titulo, c_caract, c_fotos, c_codigo,      // AB–AH
-        c_tempo, c_estoque, c_preco, c_flex, c_frete, c_parcel                  // AI–AN
-      ];
-
-      rows.push(row);
-
-    } catch (err) {
-      rows.push(_rowErro(itemID, err.message));
     }
-  }
 
-  var resultado = { rows: rows };
-  if (tokensRenovados && novosTokens) {
-    resultado.novos_tokens = novosTokens;
+    _log("LOOP (visitas+pedidos): " + (Date.now() - tLoop) + "ms — " + rows.length + " rows montadas");
+    _log("TOTAL: " + (Date.now() - tTotal) + "ms");
+
+    var resultado = { rows: rows };
+    if (tokensRenovados && novosTokens) {
+      resultado.novos_tokens = novosTokens;
+    }
+    return resultado;
+
+  } finally {
+    flushLogs(idLote);
   }
-  return resultado;
 }
