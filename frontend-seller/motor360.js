@@ -429,7 +429,7 @@ function renovarToken() {
     var response = UrlFetchApp.fetch(WEB_APP_URL, {
       method:             "post",
       contentType:        "application/json",
-      payload:            JSON.stringify({ action: "refreshToken", refresh_token: refreshToken }),
+      payload:            JSON.stringify({ action: "refreshToken", refresh_token: refreshToken, apiKey: INTERNAL_API_KEY }),
       muteHttpExceptions: true
     });
 
@@ -438,6 +438,15 @@ function renovarToken() {
       props.setProperty("access_token", data.access_token);
       if (data.refresh_token) props.setProperty("refresh_token", data.refresh_token);
       return data.access_token;
+    }
+    // Token permanentemente revogado no ML: limpa credenciais locais e interrompe o loop (Vuln. E)
+    if (data.error === "invalid_grant") {
+      PropertiesService.getUserProperties().deleteAllProperties();
+      SpreadsheetApp.getUi().alert(
+        "❌ Conexão com o Mercado Livre revogada.\n\n" +
+        "Reconecte a conta pelo menu '360 Gestão - ML → 1. Conectar Conta'."
+      );
+      return null;
     }
     console.error("renovarToken: Ponte retornou erro — " + JSON.stringify(data));
   } catch (e) {
