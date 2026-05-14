@@ -1,6 +1,6 @@
 /**
- * ACESSO.ML - O COFRE CENTRAL DA 360 GESTÃO
- * Este script recebe o código do ML e entrega o Token para a Planilha.
+ * GATEWAY — O COFRE CENTRAL DA 360 GESTÃO
+ * Recebe o código OAuth do ML, entrega o Token à Planilha e roteia todas as ações do backend.
  */
 
 function doGet(e) {

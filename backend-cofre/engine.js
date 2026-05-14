@@ -1,5 +1,5 @@
 /**
- * MOTOR DE INTELIGÊNCIA — 360 GESTÃO
+ * ENGINE — MOTOR DE INTELIGÊNCIA 360 GESTÃO
  * ─────────────────────────────────────────────────────────────────────────────
  * Propriedade intelectual protegida. Hospedado exclusivamente no backend-cofre.
  * Toda a lógica de chamadas à API do ML, cruzamento de dados e classificação
@@ -369,7 +369,7 @@ function processarRaioX_Backend(payload) {
         c_video = c_compat = c_promo = c_titulo = c_caract = c_fotos =
         c_codigo = c_tempo = c_estoque = c_preco = c_flex = c_frete = c_parcel = "⏸️ Pausado";
       } else {
-        c_video   = statusPend(pends, ["clipe", "vídeo", "video"],                    temPerf);
+        c_video   = statusPend(pends, ["clipe", "vídeo", "video"],                     temPerf);
         c_compat  = statusPend(pends, ["compatível", "veículo", "compatibilidade"],    temPerf);
         c_promo   = statusPend(pends, ["promoção"],                                    temPerf);
         c_titulo  = statusPend(pends, ["título"],                                      temPerf);

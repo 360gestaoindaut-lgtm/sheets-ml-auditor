@@ -1,11 +1,11 @@
 /**
- * MOTOR 360 GESTÃO - TERMINAL BURRO
+ * ROUTER — TERMINAL BURRO 360 GESTÃO
  * Google Apps Script — Versão SaaS Low Ticket
  *
  * Toda a inteligência analítica (Squad 360, chamadas à API do ML, pesos e
- * diagnósticos) foi migrada para o backend-cofre na Fase 2.
- * Este arquivo é agora um terminal minimalista: coleta IDs, envia lotes ao
- * servidor e imprime as linhas recebidas na planilha.
+ * diagnósticos) reside exclusivamente no engine.js do backend-cofre.
+ * Este arquivo é um terminal minimalista: coleta IDs, envia lotes ao
+ * gateway e imprime as linhas recebidas na planilha.
  */
 
 // =============================================================================
@@ -14,7 +14,7 @@
 var CONFIG = {
   SHEET_NAME:    "DESEMPENHO",
   TIMEOUT_TOTAL: 300000,   // 5 min (Google mata em 6 min)
-  BATCH_SIZE:    40,
+  BATCH_SIZE:    20,
   MAX_ANUNCIOS:  5000,
   API_BASE:      "https://api.mercadolibre.com",
   MODO_TESTE:    true,     // ← true = processa só MAX_TESTE itens; false = todos
@@ -128,9 +128,10 @@ function rodarRaioX() {
     ss.toast("⚙️ MODO TESTE: auditando apenas " + CONFIG.MAX_TESTE + " anúncios.", "360 Gestão", 8);
   }
 
-  var totalPendente = idsPendentes.length;
-  var processados   = 0;
-  var numLotes      = Math.ceil(totalPendente / CONFIG.BATCH_SIZE);
+  var totalPendente      = idsPendentes.length;
+  var processados        = 0;
+  var numLotes           = Math.ceil(totalPendente / CONFIG.BATCH_SIZE);
+  var falhasConsecutivas = 0;
 
   ss.toast(
     "Iniciando auditoria de " + totalPendente + " anúncios em " +
@@ -181,13 +182,35 @@ function rodarRaioX() {
       resposta = JSON.parse(httpResp.getContentText());
     } catch (e) {
       ss.toast("⚠️ Lote " + loteNum + " — falha na comunicação: " + e.message, "360 Gestão", 10);
+      falhasConsecutivas++;
+      if (falhasConsecutivas >= 2) {
+        SpreadsheetApp.getUi().alert(
+          "❌ " + falhasConsecutivas + " lotes consecutivos com falha de comunicação.\n\n" +
+          "Os itens pendentes serão reprocessados na próxima auditoria."
+        );
+        return;
+      }
       continue;
     }
 
     if (resposta.error) {
       ss.toast("⚠️ Lote " + loteNum + " — erro do servidor: " + resposta.error, "360 Gestão", 10);
+      if (resposta.error === "Unauthorized") {
+        SpreadsheetApp.getUi().alert("❌ Chave de API inválida. Contate o suporte 360 Gestão.");
+        return;
+      }
+      falhasConsecutivas++;
+      if (falhasConsecutivas >= 2) {
+        SpreadsheetApp.getUi().alert(
+          "❌ " + falhasConsecutivas + " erros consecutivos de servidor.\n\n" +
+          "Tente novamente em alguns minutos."
+        );
+        return;
+      }
       continue;
     }
+
+    falhasConsecutivas = 0;
 
     // Salva novos tokens IMEDIATAMENTE se o servidor os renovou durante o lote
     if (resposta.novos_tokens) {
