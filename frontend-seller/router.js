@@ -14,10 +14,10 @@
 var CONFIG = {
   SHEET_NAME:    "DESEMPENHO",
   TIMEOUT_TOTAL: 300000,   // 5 min (Google mata em 6 min)
-  BATCH_SIZE:    20,
+  BATCH_SIZE:    10,
   MAX_ANUNCIOS:  5000,
   API_BASE:      "https://api.mercadolibre.com",
-  MODO_TESTE:    true,     // ← true = processa só MAX_TESTE itens; false = todos
+  MODO_TESTE:    false,     // ← true = processa só MAX_TESTE itens; false = todos
   MAX_TESTE:     10
 };
 
