@@ -112,6 +112,25 @@ function doPost(e) {
       .setMimeType(ContentService.MimeType.JSON);
   }
 
+  // ── Processa lote de IDs e retorna linhas prontas para a planilha (Fase 2) ─
+  if (data.action === "processarRaioX") {
+    if (!data.access_token || !data.refresh_token || !data.user_id ||
+        !Array.isArray(data.ids) || data.ids.length === 0) {
+      return ContentService
+        .createTextOutput(JSON.stringify({ error: "Payload inválido.", rows: [] }))
+        .setMimeType(ContentService.MimeType.JSON);
+    }
+    var resultado = processarRaioX_Backend({
+      access_token:  data.access_token,
+      refresh_token: data.refresh_token,
+      user_id:       data.user_id,
+      ids:           data.ids
+    });
+    return ContentService
+      .createTextOutput(JSON.stringify(resultado))
+      .setMimeType(ContentService.MimeType.JSON);
+  }
+
   return ContentService
     .createTextOutput(JSON.stringify({ error: "Ação desconhecida" }))
     .setMimeType(ContentService.MimeType.JSON);

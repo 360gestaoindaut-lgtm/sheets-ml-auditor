@@ -1,7 +1,7 @@
 // CONFIGURAÇÕES DA 360 GESTÃO — NÃO EXPÕE O CLIENT_SECRET
 var CLIENT_ID        = "334744915172650";
 var WEB_APP_URL      = "https://script.google.com/macros/s/AKfycbyGFGO3cEpyc98h3lKLKDr5lpZi6MLr_HeS8t6ZPcyZnAhF6JbbhfGyg9mWxO79C4AH/exec";
-var INTERNAL_API_KEY = "DEFINIR_NO_PAINEL"; // mesmo valor de ScriptProperties['INTERNAL_API_KEY'] no backend
+var INTERNAL_API_KEY = "360_KEY_XAMdyAZnZk1BHZ57EswLstUryZpV22PW"; // mesmo valor de ScriptProperties['INTERNAL_API_KEY'] no backend
 
 // ← onOpen REMOVIDO daqui (está agora em motor360.js)
 
