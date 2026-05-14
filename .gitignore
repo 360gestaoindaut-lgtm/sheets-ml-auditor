@@ -1,0 +1,26 @@
+# ── Claude Code ──────────────────────────────────────────────
+.claude/settings.local.json
+
+# ── Secrets e credenciais ────────────────────────────────────
+.env
+.env.*
+credentials.json
+token.json
+serviceAccountKey.json
+
+# ── Clasp auth (gerado pelo `clasp login`) ───────────────────
+# ~/.clasprc.json fica fora do projeto; aqui só por segurança
+.clasprc.json
+
+# ── Node (caso venha a usar ferramentas de build locais) ─────
+node_modules/
+package-lock.json
+
+# ── Logs e temporários ───────────────────────────────────────
+*.log
+*.tmp
+*.bak
+
+# ── SO ───────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db

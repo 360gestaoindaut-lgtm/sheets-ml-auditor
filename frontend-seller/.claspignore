@@ -1,0 +1,8 @@
+# Arquivos que NÃO devem ser enviados ao Google Apps Script
+# (apenas .js e appsscript.json são enviados)
+
+.claspignore
+.clasp.json
+*.md
+*.log
+node_modules/
