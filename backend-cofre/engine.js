@@ -260,6 +260,89 @@ function _rowErro(itemID, mensagem) {
 }
 
 // =============================================================================
+// HELPERS DE PERFORMANCE — Multiget e fetchAll
+// =============================================================================
+
+/**
+ * Busca dados básicos de todos os IDs em uma única chamada à rota /items?ids=...
+ * O ML retorna um array de { code, body }; aqui convertemos para hash map O(1).
+ * Retorna null se o token expirou e o refresh falhou (caller deve abortar o lote).
+ */
+function _multigetItens(ids, headers, tentarRefresh) {
+  var url = API_BASE + "/items?ids=" + ids.join(",");
+  var res = fetchComStatus(url, headers);
+
+  if (res.status === 401) {
+    if (!tentarRefresh()) return null;
+    res = fetchComStatus(url, headers);
+  }
+
+  var map = {};
+  if (res.status === 200 && Array.isArray(res.data)) {
+    res.data.forEach(function(entry) {
+      if (entry.code === 200 && entry.body && entry.body.id) {
+        map[entry.body.id] = entry.body;
+      }
+    });
+  }
+  return map;
+}
+
+/**
+ * Dispara as requisições de /item/{id}/performance de todos os IDs em paralelo.
+ * Trata 401 (refresh + retry de todos) e 429 (sleep 2s + retry só dos índices falhos).
+ * Retorna um hash map { itemId: perfData | null }; null indica ausência de dados.
+ */
+function _fetchAllPerformance(ids, headers, tentarRefresh) {
+  var buildRequests = function() {
+    return ids.map(function(id) {
+      return {
+        url:                API_BASE + "/item/" + id + "/performance",
+        headers:            headers, // referência ao objeto mutável — atualizado pelo tentarRefresh
+        muteHttpExceptions: true
+      };
+    });
+  };
+
+  var resps = UrlFetchApp.fetchAll(buildRequests());
+
+  // 401: token expirado — renova e repete todas as requisições
+  if (resps.some(function(r) { return r.getResponseCode() === 401; })) {
+    if (tentarRefresh()) {
+      resps = UrlFetchApp.fetchAll(buildRequests()); // headers já atualizado in-place
+    } else {
+      console.warn("_fetchAllPerformance: refresh falhou — performance omitida para o lote.");
+      return ids.reduce(function(m, id) { m[id] = null; return m; }, {});
+    }
+  }
+
+  // 429: sleep 2s e repete somente os índices que falharam
+  if (resps.some(function(r) { return r.getResponseCode() === 429; })) {
+    Utilities.sleep(2000);
+    var retryReqs = [], retryIdxs = [];
+    resps.forEach(function(r, i) {
+      if (r.getResponseCode() === 429) {
+        retryReqs.push({ url: API_BASE + "/item/" + ids[i] + "/performance", headers: headers, muteHttpExceptions: true });
+        retryIdxs.push(i);
+      }
+    });
+    var retryResps = UrlFetchApp.fetchAll(retryReqs);
+    retryIdxs.forEach(function(origIdx, j) { resps[origIdx] = retryResps[j]; });
+  }
+
+  var map = {};
+  ids.forEach(function(id, i) {
+    var code = resps[i].getResponseCode();
+    if (code === 200) {
+      try { map[id] = JSON.parse(resps[i].getContentText()); } catch(e) { map[id] = null; }
+    } else {
+      map[id] = null;
+    }
+  });
+  return map;
+}
+
+// =============================================================================
 // ORQUESTRADOR — processarRaioX_Backend
 // Entrada : { access_token, refresh_token, user_id, ids[] }
 // Saída   : { rows: [[...], ...], novos_tokens?: { access_token, refresh_token } }
@@ -305,6 +388,13 @@ function processarRaioX_Backend(payload) {
   var baseVendas        = preCarregarVendas30D(userId, headers);
   var baseVisitasTotais = preCarregarVisitasTotais(ids, headers);
 
+  // ── Multiget: 1 chamada para dados de todos os IDs (vs N sequenciais) ────
+  var itemMap = _multigetItens(ids, headers, tentarRefresh);
+  if (!itemMap) return { error: "Token expirado — refresh falhou durante o multiget.", rows: [] };
+
+  // ── fetchAll: performance de todos os IDs em paralelo (vs N sequenciais) ─
+  var perfMap = _fetchAllPerformance(ids, headers, tentarRefresh);
+
   var rows = [];
 
   // ── Loop de processamento ─────────────────────────────────────────────────
@@ -312,28 +402,17 @@ function processarRaioX_Backend(payload) {
     var itemID = String(ids[k]).trim();
 
     try {
-      // (1) Dados básicos
-      var resItem = fetchComStatus(API_BASE + "/items/" + itemID, headers);
-      if (resItem.status === 401) {
-        if (!tentarRefresh()) { rows.push(_rowErro(itemID, "Token expirado — refresh falhou.")); continue; }
-        resItem = fetchComStatus(API_BASE + "/items/" + itemID, headers);
-      }
-      if (resItem.status !== 200 || !resItem.data || resItem.data.error) {
-        rows.push(_rowErro(itemID, "Item indisponível (status " + resItem.status + ")"));
+      // Dados básicos do multiget (acesso O(1) ao hash map pré-carregado)
+      var det = itemMap[itemID];
+      if (!det || det.error) {
+        rows.push(_rowErro(itemID, "Item indisponível no catálogo"));
         continue;
       }
-      var det = resItem.data;
 
-      // (2) Performance
-      var resPerf = fetchComStatus(API_BASE + "/item/" + itemID + "/performance", headers);
-      if (resPerf.status === 401) {
-        if (!tentarRefresh()) { rows.push(_rowErro(itemID, "Token expirado — refresh falhou.")); continue; }
-        resPerf = fetchComStatus(API_BASE + "/item/" + itemID + "/performance", headers);
-      }
-      var perf    = (resPerf.status === 200 && resPerf.data) ? resPerf.data : null;
+      // Performance do fetchAll paralelo (null = sem dados de performance)
+      var perf    = perfMap[itemID] || null;
       var temPerf = !!(perf && perf.buckets);
 
-      // (3) Visitas detalhadas (referência ao headers atualizado é passada aqui)
       var visitas = getVisitasCompletas(itemID, headers, baseVisitasTotais);
 
       // (4) Total histórico de pedidos
