@@ -29,10 +29,29 @@ function onOpen() {
     .createMenu("360 Gestão - ML")
     .addItem("1. Conectar Conta Mercado Livre", "abrirLoginML")
     .addItem("2. Sincronizar Catálogo",          "sincronizarAnuncios")
-    .addItem("3. Rodar Raio-X (Auditoria)",      "rodarRaioX")
+    .addItem("3. Rodar Raio-X (Auditoria)",      "abrirSidebarRaioX")
     .addSeparator()
     .addItem("Criar Cabeçalho", "criarCabecalho")
     .addToUi();
+}
+
+// =============================================================================
+// PAINEL DE CONTROLE — Sidebar
+// =============================================================================
+function abrirSidebarRaioX() {
+  var html = HtmlService.createHtmlOutputFromFile("sidebar")
+    .setTitle("Painel de Controle - 360 Gestão");
+  SpreadsheetApp.getUi().showSidebar(html);
+  rodarRaioX();
+}
+
+function obterStatusRaioX() {
+  var cache = CacheService.getUserCache();
+  return {
+    atual: parseInt(cache.get("PROGRESS_ATUAL") || "0"),
+    total: parseInt(cache.get("PROGRESS_TOTAL") || "0"),
+    msg:   cache.get("PROGRESS_MSG") || "Aguardando início..."
+  };
 }
 
 // =============================================================================
@@ -107,15 +126,19 @@ function rodarRaioX() {
   var ultimaLinha   = Math.max(sheet.getLastRow(), 2);
   var dadosPlanilha = sheet.getRange("A2:AN" + ultimaLinha).getValues();
 
-  // Identifica pares {indice, id} de linhas ainda não auditadas
+  // Identifica pares {indice, id} de linhas ainda não auditadas.
+  // totalGlobal conta todos os MLB da planilha (incluindo já auditados)
+  // para manter o progresso correto entre execuções do trigger.
   var idsPendentes = [];
+  var totalGlobal  = 0;
   for (var idx = 0; idx < dadosPlanilha.length; idx++) {
     var id     = String(dadosPlanilha[idx][1] || "").trim();
     var titulo = String(dadosPlanilha[idx][3] || "").trim();
-    if (id.startsWith("MLB") && (!titulo || titulo.startsWith("ERRO"))) {
-      idsPendentes.push({ indice: idx, id: id });
-    }
+    if (!id.startsWith("MLB")) continue;
+    totalGlobal++;
+    if (!titulo || titulo.startsWith("ERRO")) idsPendentes.push({ indice: idx, id: id });
   }
+  var jaProcessados = totalGlobal - idsPendentes.length;
 
   if (idsPendentes.length === 0) {
     return SpreadsheetApp.getUi().alert(
@@ -132,6 +155,13 @@ function rodarRaioX() {
   var processados        = 0;
   var numLotes           = Math.ceil(totalPendente / CONFIG.BATCH_SIZE);
   var falhasConsecutivas = 0;
+  var cache              = CacheService.getUserCache();
+
+  cache.putAll({
+    PROGRESS_TOTAL: String(totalGlobal),
+    PROGRESS_ATUAL: String(jaProcessados),
+    PROGRESS_MSG:   "Iniciando auditoria de " + totalPendente + " anúncios..."
+  }, 21600);
 
   ss.toast(
     "Iniciando auditoria de " + totalPendente + " anúncios em " +
@@ -146,6 +176,7 @@ function rodarRaioX() {
     if (Date.now() - startTotal > CONFIG.TIMEOUT_TOTAL) {
       var restantes = totalPendente - processados;
       _agendarContinuacao();
+      cache.put("PROGRESS_MSG", "⏸️ Pausado. Continuando em 1 minuto...", 21600);
       ss.toast(
         "⏳ Limite de tempo: " + processados + " auditados, " + restantes +
         " pendentes. Continuando automaticamente em 1 minuto...",
@@ -162,6 +193,7 @@ function rodarRaioX() {
       " (" + lote.length + " anúncios)...",
       "360 Gestão", 30
     );
+    cache.put("PROGRESS_MSG", "Auditando lote " + loteNum + " de " + numLotes + "...", 21600);
 
     // Envia o lote ao servidor e recebe as linhas prontas para colar
     var resposta;
@@ -229,6 +261,10 @@ function rodarRaioX() {
     SpreadsheetApp.flush();
 
     processados += lote.length;
+    cache.putAll({
+      PROGRESS_ATUAL: String(jaProcessados + processados),
+      PROGRESS_MSG:   "Auditados " + (jaProcessados + processados) + " de " + totalGlobal + "..."
+    }, 21600);
     ss.toast(
       "✅ " + processados + "/" + totalPendente + " anúncios auditados...",
       "360 Gestão", 6
@@ -236,6 +272,10 @@ function rodarRaioX() {
   }
 
   _cancelarTriggerContinuacao();
+  cache.putAll({
+    PROGRESS_ATUAL: String(totalGlobal),
+    PROGRESS_MSG:   "✅ Auditoria concluída! " + processados + " anúncios processados."
+  }, 21600);
   SpreadsheetApp.getUi().alert(
     "🏁 Auditoria concluída!\n\n✅ " + processados + " anúncios processados com sucesso."
   );

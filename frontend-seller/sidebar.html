@@ -1,0 +1,232 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <base target="_top">
+  <meta charset="UTF-8">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: 'Segoe UI', Arial, sans-serif;
+      background: #f4f6fb;
+      color: #1a1a2e;
+      padding: 14px;
+      font-size: 13px;
+      line-height: 1.4;
+    }
+
+    /* ─── Header ─────────────────────────────────────────── */
+    .hd {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 14px;
+    }
+    .hd-badge {
+      background: #1565c0;
+      color: #fff;
+      font-weight: 700;
+      font-size: 11px;
+      padding: 3px 8px;
+      border-radius: 4px;
+      letter-spacing: 0.4px;
+    }
+    .hd-title {
+      font-size: 14px;
+      font-weight: 600;
+    }
+
+    /* ─── Cards ──────────────────────────────────────────── */
+    .card {
+      background: #fff;
+      border-radius: 8px;
+      padding: 14px;
+      margin-bottom: 10px;
+      box-shadow: 0 1px 4px rgba(0,0,0,0.07);
+    }
+    .card-label {
+      font-size: 10px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.6px;
+      color: #888;
+      margin-bottom: 10px;
+    }
+
+    /* ─── Barra de progresso ─────────────────────────────── */
+    .bar-track {
+      background: #e8ecf3;
+      border-radius: 99px;
+      height: 8px;
+      overflow: hidden;
+      margin-bottom: 7px;
+    }
+    .bar-fill {
+      height: 100%;
+      border-radius: 99px;
+      background: linear-gradient(90deg, #1565c0, #3483fa);
+      width: 0%;
+      transition: width 0.7s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+    .bar-fill.done {
+      background: linear-gradient(90deg, #1b5e20, #2e7d32);
+    }
+    .bar-meta {
+      display: flex;
+      justify-content: space-between;
+      font-size: 11px;
+      color: #666;
+    }
+    .bar-pct           { font-weight: 700; color: #1565c0; }
+    .bar-pct.done      { color: #2e7d32; }
+
+    /* ─── Mensagem de status ─────────────────────────────── */
+    .status         { margin-top: 10px; font-size: 12px; font-weight: 500; min-height: 16px; color: #555; }
+    .status.running { color: #1565c0; }
+    .status.done    { color: #2e7d32; }
+    .status.error   { color: #c62828; }
+
+    /* ─── Aviso ──────────────────────────────────────────── */
+    .warn {
+      background: #fffde7;
+      border-left: 3px solid #f9a825;
+      border-radius: 0 6px 6px 0;
+      padding: 9px 12px;
+      font-size: 12px;
+      color: #5d4037;
+      line-height: 1.55;
+    }
+
+    /* ─── Dica rotativa ──────────────────────────────────── */
+    .tip {
+      background: #e8f1fc;
+      border-radius: 6px;
+      padding: 12px;
+    }
+    .tip-head {
+      font-size: 10px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      color: #1565c0;
+      margin-bottom: 5px;
+    }
+    .tip-body {
+      font-size: 12px;
+      color: #333;
+      line-height: 1.55;
+      min-height: 40px;
+      transition: opacity 0.4s ease;
+    }
+    .tip-body.fading { opacity: 0; }
+  </style>
+</head>
+<body>
+
+  <div class="hd">
+    <span class="hd-badge">360</span>
+    <span class="hd-title">Raio-X em Andamento</span>
+  </div>
+
+  <!-- Progresso -->
+  <div class="card">
+    <div class="card-label">Progresso da Auditoria</div>
+    <div class="bar-track">
+      <div class="bar-fill" id="barFill"></div>
+    </div>
+    <div class="bar-meta">
+      <span id="countLbl">0 de 0 anúncios</span>
+      <span class="bar-pct" id="pctLbl">0%</span>
+    </div>
+    <div class="status" id="statusLbl">Aguardando início da auditoria...</div>
+  </div>
+
+  <!-- Aviso de aba aberta -->
+  <div class="card">
+    <div class="warn">
+      ⚠️ <strong>Não feche esta aba.</strong>
+      Se fechar, o script continua em segundo plano. Reabra o painel pelo menu a qualquer momento para retomar o acompanhamento.
+    </div>
+  </div>
+
+  <!-- Dicas rotativas de SEO -->
+  <div class="card">
+    <div class="tip">
+      <div class="tip-head">💡 Dica de SEO &amp; Performance</div>
+      <div class="tip-body" id="tipLbl">Carregando...</div>
+    </div>
+  </div>
+
+  <script>
+    var TIPS = [
+      "Títulos com as palavras-chave exatas do comprador aumentam as visitas em até 40%.",
+      "Anúncios com vídeo curto têm taxa de conversão até 2× maior no Mercado Livre.",
+      "Imagens com fundo branco e mínimo de 1200×1200 px elevam o Score de qualidade.",
+      "Preencher o Código Universal (EAN/GTIN) aumenta a exposição orgânica no catálogo.",
+      "Oferecer frete grátis pode dobrar a taxa de conversão — considere incluí-lo no preço.",
+      "Anúncios com Flex ativo aparecem primeiro para compradores que buscam entrega no mesmo dia.",
+      "Responder perguntas em menos de 1 hora melhora o ranking orgânico do anúncio no ML.",
+      "Características técnicas completas reduzem devoluções e aumentam a confiança do comprador."
+    ];
+
+    var _tipIdx = Math.floor(Math.random() * TIPS.length);
+    var _timer  = null;
+    var _done   = false;
+
+    function showTip(animate) {
+      var el = document.getElementById("tipLbl");
+      if (animate) {
+        el.classList.add("fading");
+        setTimeout(function() {
+          _tipIdx = (_tipIdx + 1) % TIPS.length;
+          el.textContent = TIPS[_tipIdx];
+          el.classList.remove("fading");
+        }, 400);
+      } else {
+        el.textContent = TIPS[_tipIdx];
+      }
+    }
+
+    function applyStatus(s) {
+      var atual  = s.atual || 0;
+      var total  = s.total || 0;
+      var msg    = s.msg   || "Aguardando início da auditoria...";
+      var pct    = total > 0 ? Math.min(100, Math.round((atual / total) * 100)) : 0;
+      var isDone = msg.indexOf("concluída") > -1;
+
+      document.getElementById("barFill").style.width   = pct + "%";
+      document.getElementById("pctLbl").textContent    = pct + "%";
+      document.getElementById("countLbl").textContent  = atual + " de " + total + " anúncios";
+      document.getElementById("statusLbl").textContent = msg;
+
+      var fill  = document.getElementById("barFill");
+      var pctEl = document.getElementById("pctLbl");
+      var msgEl = document.getElementById("statusLbl");
+
+      if (isDone) {
+        fill.classList.add("done");
+        pctEl.classList.add("done");
+        msgEl.className = "status done";
+        if (!_done) { _done = true; clearInterval(_timer); }
+      } else if (total > 0) {
+        msgEl.className = "status running";
+      }
+    }
+
+    function poll() {
+      google.script.run
+        .withSuccessHandler(applyStatus)
+        .withFailureHandler(function(err) {
+          document.getElementById("statusLbl").textContent = "⚠️ " + err.message;
+          document.getElementById("statusLbl").className   = "status error";
+        })
+        .obterStatusRaioX();
+    }
+
+    showTip(false);
+    poll();
+    _timer = setInterval(poll, 4000);
+    setInterval(function() { showTip(true); }, 14000);
+  </script>
+</body>
+</html>
