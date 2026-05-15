@@ -28,14 +28,14 @@ function checkTimeout() {
   if (Date.now() - _startBackend > 50000) throw new Error("TIMEOUT_INTERNO");
 }
 
-function logImmediate(msg) {
+function logImmediate(vendedorId, vendedorNome, idLote, mensagem) {
   var sheetId = PropertiesService.getScriptProperties().getProperty("LOG_SHEET_ID");
   if (!sheetId) return;
   try {
     var ss    = SpreadsheetApp.openById(sheetId);
     var sheet = ss.getSheetByName("LOGS");
     if (!sheet) sheet = ss.insertSheet("LOGS");
-    sheet.appendRow([new Date(), _vendedorId, _vendedorNome, "IMEDIATO", msg]);
+    sheet.appendRow([new Date(), vendedorId, vendedorNome, "IMEDIATO", mensagem]);
   } catch(e) {
     console.error("logImmediate: falha — " + e.message);
   }
@@ -433,7 +433,7 @@ function processarRaioX_Backend(payload) {
   var idLote = String(ids[0]).slice(-4);
   var tTotal = Date.now();
   _log("INÍCIO: " + ids.length + " IDs | " + new Date().toISOString());
-  logImmediate("INÍCIO lote=" + idLote + " | " + ids.length + " IDs | " + new Date().toISOString());
+  logImmediate(_vendedorId, _vendedorNome, idLote, "INÍCIO lote=" + idLote + " | " + ids.length + " IDs | " + new Date().toISOString());
 
   var headers         = { "Authorization": "Bearer " + token };
   var tokensRenovados = false;
@@ -591,7 +591,7 @@ function processarRaioX_Backend(payload) {
     return resultado;
 
   } catch(err) {
-    logImmediate("ERRO FATAL lote=" + idLote + ": " + err.message);
+    logImmediate(_vendedorId, _vendedorNome, idLote, "ERRO FATAL lote=" + idLote + ": " + err.message);
     _log("ERRO FATAL: " + err.message);
     return { error: err.message, rows: [] };
   } finally {
