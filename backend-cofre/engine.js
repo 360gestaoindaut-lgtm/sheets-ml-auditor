@@ -15,10 +15,28 @@ var _cacheCategoria = {}; // cache de árvore de categorias, por execução
 // Buffer em memória acumulado durante a execução e gravado em lote no final.
 // LOG_SHEET_ID deve estar em ScriptProperties para ativação; se ausente, é no-op.
 // =============================================================================
-var _logs = [];
+var _logs         = [];
+var _startBackend = 0;
 
 function _log(msg) {
   _logs.push(msg);
+}
+
+function checkTimeout() {
+  if (Date.now() - _startBackend > 50000) throw new Error("TIMEOUT_INTERNO");
+}
+
+function logImmediate(msg) {
+  var sheetId = PropertiesService.getScriptProperties().getProperty("LOG_SHEET_ID");
+  if (!sheetId) return;
+  try {
+    var ss    = SpreadsheetApp.openById(sheetId);
+    var sheet = ss.getSheetByName("LOGS");
+    if (!sheet) sheet = ss.insertSheet("LOGS");
+    sheet.appendRow([new Date(), "IMEDIATO", msg]);
+  } catch(e) {
+    console.error("logImmediate: falha — " + e.message);
+  }
 }
 
 /**
@@ -124,6 +142,7 @@ function preCarregarVendas30D(userId, headers) {
   var offset = 0, totalPedidos = 0;
 
   while (true) {
+    checkTimeout();
     var url = API_BASE + "/orders/search?seller=" + userId +
               "&order.date_created.from=" + encodeURIComponent(data30ISO) +
               "&order.status=paid&offset=" + offset + "&limit=50";
@@ -355,21 +374,26 @@ function _fetchAllPerformance(ids, headers, tentarRefresh) {
     }
   }
 
-  // 429: sleep 2s e repete somente os índices que falharam
-  var count429 = resps.filter(function(r) { return r.getResponseCode() === 429; }).length;
-  if (count429 > 0) {
-    _log("FETCH_ALL_PERF 429: " + count429 + "/" + ids.length + " itens — sleep 2s e retry seletivo");
-    Utilities.sleep(2000);
-    var retryReqs = [], retryIdxs = [];
-    resps.forEach(function(r, i) {
-      if (r.getResponseCode() === 429) {
-        retryReqs.push({ url: API_BASE + "/item/" + ids[i] + "/performance", headers: headers, muteHttpExceptions: true });
-        retryIdxs.push(i);
-      }
+  // 429: retry seletivo com limite de 3 tentativas e backoff crescente
+  var maxRetries429 = 3;
+  var retries429    = 0;
+  while (retries429 < maxRetries429) {
+    checkTimeout();
+    var pending429 = [];
+    resps.forEach(function(r, i) { if (r.getResponseCode() === 429) pending429.push(i); });
+    if (pending429.length === 0) break;
+    _log("FETCH_ALL_PERF 429: " + pending429.length + "/" + ids.length + " itens — retry " + (retries429 + 1) + "/" + maxRetries429);
+    Utilities.sleep(2000 * (retries429 + 1));
+    var retryReqs429  = pending429.map(function(i) {
+      return { url: API_BASE + "/item/" + ids[i] + "/performance", headers: headers, muteHttpExceptions: true };
     });
-    var retryResps = UrlFetchApp.fetchAll(retryReqs);
-    retryIdxs.forEach(function(origIdx, j) { resps[origIdx] = retryResps[j]; });
-    _log("FETCH_ALL_PERF retry de " + retryIdxs.length + " itens concluído");
+    var retryResps429 = UrlFetchApp.fetchAll(retryReqs429);
+    pending429.forEach(function(origIdx, j) { resps[origIdx] = retryResps429[j]; });
+    retries429++;
+  }
+  if (retries429 === maxRetries429) {
+    var still429 = resps.filter(function(r) { return r.getResponseCode() === 429; }).length;
+    if (still429 > 0) _log("FETCH_ALL_PERF 429: max retries atingido — " + still429 + " itens marcados como falha");
   }
 
   var map = {};
@@ -390,6 +414,7 @@ function _fetchAllPerformance(ids, headers, tentarRefresh) {
 // Saída   : { rows: [[...], ...], novos_tokens?: { access_token, refresh_token } }
 // =============================================================================
 function processarRaioX_Backend(payload) {
+  _startBackend    = Date.now();
   var token        = payload.access_token;
   var refreshToken = payload.refresh_token;
   var userId       = payload.user_id;
@@ -404,6 +429,7 @@ function processarRaioX_Backend(payload) {
   var idLote = String(ids[0]).slice(-4);
   var tTotal = Date.now();
   _log("INÍCIO: " + ids.length + " IDs | " + new Date().toISOString());
+  logImmediate("INÍCIO lote=" + idLote + " | " + ids.length + " IDs | " + new Date().toISOString());
 
   var headers         = { "Authorization": "Bearer " + token };
   var tokensRenovados = false;
@@ -455,6 +481,7 @@ function processarRaioX_Backend(payload) {
     var tLoop = Date.now();
 
     for (var k = 0; k < ids.length; k++) {
+      checkTimeout();
       var itemID = String(ids[k]).trim();
 
       try {
@@ -559,6 +586,10 @@ function processarRaioX_Backend(payload) {
     }
     return resultado;
 
+  } catch(err) {
+    logImmediate("ERRO FATAL lote=" + idLote + ": " + err.message);
+    _log("ERRO FATAL: " + err.message);
+    return { error: err.message, rows: [] };
   } finally {
     flushLogs(idLote);
   }
