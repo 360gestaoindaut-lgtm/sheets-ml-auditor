@@ -17,6 +17,8 @@ var _cacheCategoria = {}; // cache de árvore de categorias, por execução
 // =============================================================================
 var _logs         = [];
 var _startBackend = 0;
+var _vendedorId   = "";
+var _vendedorNome = "";
 
 function _log(msg) {
   _logs.push(msg);
@@ -33,7 +35,7 @@ function logImmediate(msg) {
     var ss    = SpreadsheetApp.openById(sheetId);
     var sheet = ss.getSheetByName("LOGS");
     if (!sheet) sheet = ss.insertSheet("LOGS");
-    sheet.appendRow([new Date(), "IMEDIATO", msg]);
+    sheet.appendRow([new Date(), _vendedorId, _vendedorNome, "IMEDIATO", msg]);
   } catch(e) {
     console.error("logImmediate: falha — " + e.message);
   }
@@ -52,8 +54,8 @@ function flushLogs(idLote) {
     var sheet = ss.getSheetByName("LOGS");
     if (!sheet) sheet = ss.insertSheet("LOGS");
     var ts   = Utilities.formatDate(new Date(), "America/Sao_Paulo", "yyyy-MM-dd HH:mm:ss");
-    var data = _logs.map(function(msg) { return [ts, idLote, msg]; });
-    sheet.getRange(sheet.getLastRow() + 1, 1, data.length, 3).setValues(data);
+    var data = _logs.map(function(msg) { return [ts, _vendedorId, _vendedorNome, idLote, msg]; });
+    sheet.getRange(sheet.getLastRow() + 1, 1, data.length, 5).setValues(data);
   } catch(e) {
     console.error("flushLogs: falha ao gravar — " + e.message);
   } finally {
@@ -415,6 +417,8 @@ function _fetchAllPerformance(ids, headers, tentarRefresh) {
 // =============================================================================
 function processarRaioX_Backend(payload) {
   _startBackend    = Date.now();
+  _vendedorId      = payload.vendedor_id   || "";
+  _vendedorNome    = payload.vendedor_nome || "";
   var token        = payload.access_token;
   var refreshToken = payload.refresh_token;
   var userId       = payload.user_id;

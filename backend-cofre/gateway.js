@@ -124,7 +124,9 @@ function doPost(e) {
       access_token:  data.access_token,
       refresh_token: data.refresh_token,
       user_id:       data.user_id,
-      ids:           data.ids
+      ids:           data.ids,
+      vendedor_id:   data.vendedor_id   || "",
+      vendedor_nome: data.vendedor_nome || ""
     });
     return ContentService
       .createTextOutput(JSON.stringify(resultado))
