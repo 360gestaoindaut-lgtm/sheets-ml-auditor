@@ -13,7 +13,7 @@
 // =============================================================================
 var CONFIG = {
   SHEET_NAME:    "DESEMPENHO",
-  TIMEOUT_TOTAL: 300000,   // 5 min (Google mata em 6 min)
+  TIMEOUT_TOTAL: 270000,   // 4.5 min — margem para lotes de até 60s antes do teto GAS de 6 min
   BATCH_SIZE:    10,
   MAX_ANUNCIOS:  5000,
   API_BASE:      "https://api.mercadolibre.com",
@@ -154,8 +154,7 @@ function rodarRaioX() {
   var totalPendente      = idsPendentes.length;
   var processados        = 0;
   var numLotes           = Math.ceil(totalPendente / CONFIG.BATCH_SIZE);
-  var falhasConsecutivas = 0;
-  var cache              = CacheService.getUserCache();
+  var cache = CacheService.getUserCache();
 
   cache.putAll({
     PROGRESS_TOTAL: String(totalGlobal),
@@ -196,7 +195,8 @@ function rodarRaioX() {
     cache.put("PROGRESS_MSG", "Auditando lote " + loteNum + " de " + numLotes + "...", 21600);
 
     // Envia o lote ao servidor e recebe as linhas prontas para colar
-    var resposta;
+    var resposta   = null;
+    var httpStatus = 0;
     try {
       var httpResp = UrlFetchApp.fetch(WEB_APP_URL, {
         method:             "post",
@@ -211,38 +211,44 @@ function rodarRaioX() {
         }),
         muteHttpExceptions: true
       });
-      resposta = JSON.parse(httpResp.getContentText());
+      httpStatus = httpResp.getResponseCode();
+      resposta   = JSON.parse(httpResp.getContentText());
     } catch (e) {
-      ss.toast("⚠️ Lote " + loteNum + " — falha na comunicação: " + e.message, "360 Gestão", 10);
-      falhasConsecutivas++;
-      if (falhasConsecutivas >= 2) {
-        SpreadsheetApp.getUi().alert(
-          "❌ " + falhasConsecutivas + " lotes consecutivos com falha de comunicação.\n\n" +
-          "Os itens pendentes serão reprocessados na próxima auditoria."
-        );
-        return;
-      }
+      ss.toast("⚠️ Lote " + loteNum + " — falha de rede: " + e.message, "360 Gestão", 10);
+      _marcarLoteComoErro(sheet, lote);
+      processados += lote.length;
+      cache.putAll({
+        PROGRESS_ATUAL: String(jaProcessados + processados),
+        PROGRESS_MSG:   "Auditados " + (jaProcessados + processados) + " de " + totalGlobal + "..."
+      }, 21600);
+      continue;
+    }
+
+    if (httpStatus >= 500) {
+      ss.toast("⚠️ Lote " + loteNum + " — servidor retornou HTTP " + httpStatus + ". Marcando como erro.", "360 Gestão", 10);
+      _marcarLoteComoErro(sheet, lote);
+      processados += lote.length;
+      cache.putAll({
+        PROGRESS_ATUAL: String(jaProcessados + processados),
+        PROGRESS_MSG:   "Auditados " + (jaProcessados + processados) + " de " + totalGlobal + "..."
+      }, 21600);
       continue;
     }
 
     if (resposta.error) {
-      ss.toast("⚠️ Lote " + loteNum + " — erro do servidor: " + resposta.error, "360 Gestão", 10);
       if (resposta.error === "Unauthorized") {
         SpreadsheetApp.getUi().alert("❌ Chave de API inválida. Contate o suporte 360 Gestão.");
         return;
       }
-      falhasConsecutivas++;
-      if (falhasConsecutivas >= 2) {
-        SpreadsheetApp.getUi().alert(
-          "❌ " + falhasConsecutivas + " erros consecutivos de servidor.\n\n" +
-          "Tente novamente em alguns minutos."
-        );
-        return;
-      }
+      ss.toast("⚠️ Lote " + loteNum + " — erro do servidor: " + resposta.error + ". Marcando como erro.", "360 Gestão", 10);
+      _marcarLoteComoErro(sheet, lote);
+      processados += lote.length;
+      cache.putAll({
+        PROGRESS_ATUAL: String(jaProcessados + processados),
+        PROGRESS_MSG:   "Auditados " + (jaProcessados + processados) + " de " + totalGlobal + "..."
+      }, 21600);
       continue;
     }
-
-    falhasConsecutivas = 0;
 
     // Salva novos tokens IMEDIATAMENTE se o servidor os renovou durante o lote
     if (resposta.novos_tokens) {
@@ -390,6 +396,13 @@ function renovarToken() {
 // =============================================================================
 // 4. UTILITÁRIOS
 // =============================================================================
+function _marcarLoteComoErro(sheet, lote) {
+  lote.forEach(function(item) {
+    sheet.getRange(item.indice + 2, 4, 1, 1).setValues([["ERRO: Falha no Servidor Central"]]);
+  });
+  SpreadsheetApp.flush();
+}
+
 function escreverBuffer(sheet, buffer) {
   buffer.forEach(function(item) {
     sheet.getRange(item.linha, 1, 1, item.row.length).setValues([item.row]);
