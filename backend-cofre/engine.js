@@ -35,7 +35,8 @@ function logImmediate(vendedorId, vendedorNome, idLote, mensagem) {
     var ss    = SpreadsheetApp.openById(sheetId);
     var sheet = ss.getSheetByName("LOGS");
     if (!sheet) sheet = ss.insertSheet("LOGS");
-    sheet.appendRow([new Date(), vendedorId, vendedorNome, "IMEDIATO", mensagem]);
+    var nextRow = sheet.getLastRow() + 1;
+    sheet.getRange(nextRow, 1, 1, 5).setValues([[new Date(), vendedorId, vendedorNome, "IMEDIATO", mensagem]]);
   } catch(e) {
     console.error("logImmediate: falha — " + e.message);
   }
