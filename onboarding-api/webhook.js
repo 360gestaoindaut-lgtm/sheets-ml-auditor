@@ -1,26 +1,32 @@
 /**
  * ONBOARDING API — MICROSSERVIÇO DE WEBHOOK HOTMART
- * Recebe compras aprovadas, clona a planilha Master e entrega acesso ao cliente.
- * Isolado do backend-cofre: não tem acesso a INTERNAL_API_KEY, CLIENT_SECRET,
- * nem à lógica de auditoria. Comunica-se apenas com Drive, Sheets e MailApp.
+ * Arquitetura assíncrona de fila para respeitar o timeout de 10s da Hotmart.
+ *
+ *   doPost              → Recepcionista: valida token, enfileira payload, retorna 200 em < 1s.
+ *   processarFilaVendas → Operário: lê a fila e executa o provisionamento pesado (~13s).
+ *   instalarTrigger     → Executar UMA VEZ no editor GAS para agendar o operário.
  *
  * ScriptProperties obrigatórias:
- *   HOTMART_TOKEN      — token configurado na URL do webhook no painel Hotmart
+ *   HOTMART_TOKEN      — token configurado na URL do webhook (?hottok=TOKEN)
  *   MASTER_SHEET_ID    — ID da planilha-template (frontend-seller Master)
  *   PASTA_CLIENTES_ID  — ID da pasta "01. Clientes Ativos" no Drive
  *   LOG_SHEET_ID       — ID da planilha de telemetria (aba LOGS, 6 colunas)
+ *
+ * Prefixos de ScriptProperties usados em runtime:
+ *   QUEUE_{txId}        — payload bruto aguardando processamento
+ *   TX_{txId}           — marca de idempotência (provisionamento concluído)
+ *   ERROR_QUEUE_{txId}  — payload que falhou; requer intervenção manual
  */
 
 // ── Helper de timestamp ───────────────────────────────────────────────────────
-// Projeto GAS isolado: não compartilha código com backend-cofre, por isso
-// obterDataFormatada360 é definida localmente com a mesma assinatura.
+// Projeto GAS isolado: replica obterDataFormatada360 de engine.js localmente.
 function obterDataFormatada360(dataOpcional) {
   var data = dataOpcional || new Date();
   return Utilities.formatDate(data, Session.getScriptTimeZone(), "yyyy-MM-dd HH:mm:ss");
 }
 
 // ── Logger de telemetria ──────────────────────────────────────────────────────
-// Grava na aba LOGS da planilha LOG_SHEET_ID seguindo o layout de 6 colunas:
+// Layout de 6 colunas idêntico ao backend-cofre:
 // A=DATA | B=ORIGEM | C=PLATAFORMA | D=AMBIENTE | E=TIPO | F=MENSAGEM
 function _log(tipo, mensagem) {
   var sheetId = PropertiesService.getScriptProperties().getProperty("LOG_SHEET_ID");
@@ -30,7 +36,7 @@ function _log(tipo, mensagem) {
     var sheet = ss.getSheetByName("LOGS");
     if (!sheet) sheet = ss.insertSheet("LOGS");
     var nextRow  = sheet.getLastRow() + 1;
-    var conteudo = String(mensagem).slice(0, 49000); // limite de célula GAS
+    var conteudo = String(mensagem).slice(0, 49000);
     sheet.getRange(nextRow, 1, 1, 6).setValues([[
       obterDataFormatada360(), "WEBHOOK", "HOTMART", "SANDBOX", tipo, conteudo
     ]]);
@@ -39,106 +45,132 @@ function _log(tipo, mensagem) {
   }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-
+// =============================================================================
+// RECEPCIONISTA — retorna HTTP 200 em < 1s
+// =============================================================================
 function doPost(e) {
-  var props = PropertiesService.getScriptProperties();
-
-  // Captura imediata do payload bruto (antes de qualquer parse)
-  var rawPayload = (e.postData && e.postData.contents) ? e.postData.contents : "(sem body)";
+  var props      = PropertiesService.getScriptProperties();
+  var rawPayload = (e.postData && e.postData.contents) ? e.postData.contents : "";
 
   // ── Validação do token Hotmart ────────────────────────────────────────────
-  // O token é enviado como query param ?hottok=TOKEN na URL do webhook
   var hottokEsperado = props.getProperty("HOTMART_TOKEN");
   if (!hottokEsperado || e.parameter.hottok !== hottokEsperado) {
-    return ContentService
-      .createTextOutput(JSON.stringify({ error: "Unauthorized" }))
+    return ContentService.createTextOutput(JSON.stringify({ status: "ok" }))
       .setMimeType(ContentService.MimeType.JSON);
   }
 
-  // Log do payload bruto — origem confirmada pelo token
-  _log("PAYLOAD_BRUTO", rawPayload);
+  // Log do payload bruto — origem confirmada
+  _log("PAYLOAD_BRUTO", rawPayload || "(sem body)");
+
+  // ── Extração mínima: apenas transacao_id (sem operações pesadas) ──────────
+  var transacao_id = "";
+  try {
+    var parsed   = JSON.parse(rawPayload);
+    var evento   = (parsed.event || "DESCONHECIDO").toUpperCase();
+    transacao_id = String(((parsed.data || {}).purchase || {}).transaction || "").trim();
+    _log("EVENTO_RECEBIDO", evento);
+  } catch(parseErr) {
+    _log("PARSE_ERROR", parseErr.message);
+    return ContentService.createTextOutput(JSON.stringify({ status: "ok" }))
+      .setMimeType(ContentService.MimeType.JSON);
+  }
+
+  if (!transacao_id) {
+    _log("TRANSACAO_AUSENTE", "transacao_id nao encontrado no payload");
+    return ContentService.createTextOutput(JSON.stringify({ status: "ok" }))
+      .setMimeType(ContentService.MimeType.JSON);
+  }
+
+  // ── Idempotência: já foi processado com sucesso? ──────────────────────────
+  if (props.getProperty("TX_" + transacao_id)) {
+    _log("DUPLICADA_IGNORADA", transacao_id);
+    return ContentService.createTextOutput(JSON.stringify({ status: "ok" }))
+      .setMimeType(ContentService.MimeType.JSON);
+  }
+
+  // ── Já está na fila? (retentativa antes do operário rodar) ───────────────
+  if (props.getProperty("QUEUE_" + transacao_id)) {
+    _log("JA_NA_FILA", transacao_id);
+    return ContentService.createTextOutput(JSON.stringify({ status: "ok" }))
+      .setMimeType(ContentService.MimeType.JSON);
+  }
+
+  // ── Enfileira e retorna ───────────────────────────────────────────────────
+  props.setProperty("QUEUE_" + transacao_id, rawPayload);
+  _log("VENDA_ENFILEIRADA", transacao_id);
+
+  return ContentService.createTextOutput(JSON.stringify({ status: "ok" }))
+    .setMimeType(ContentService.MimeType.JSON);
+}
+
+// =============================================================================
+// OPERÁRIO — acionado pelo trigger a cada 1 minuto
+// =============================================================================
+function processarFilaVendas() {
+  // Lock de script: se outra instância já está rodando, sai silenciosamente
+  var lock = LockService.getScriptLock();
+  if (!lock.tryLock(0)) {
+    return; // outra instância está processando
+  }
 
   try {
-    // ── Parse do payload ──────────────────────────────────────────────────
-    var payload;
-    try {
-      payload = JSON.parse(rawPayload);
-    } catch(parseErr) {
-      _log("PARSE_ERROR", parseErr.message);
-      return ContentService
-        .createTextOutput(JSON.stringify({ error: "Payload inválido" }))
-        .setMimeType(ContentService.MimeType.JSON);
-    }
+    var props = PropertiesService.getScriptProperties();
+    var todas = props.getProperties();
+    var chaves = Object.keys(todas).filter(function(k) { return k.startsWith("QUEUE_"); });
 
-    // Loga o evento recebido e prossegue — filtro removido temporariamente
-    // para validar o fluxo de Drive com qualquer evento de teste da Hotmart.
-    var evento = (payload.event || "DESCONHECIDO").toUpperCase();
-    _log("EVENTO_RECEBIDO", evento);
+    if (chaves.length === 0) return;
 
-    // ── Extração dos dados do comprador ───────────────────────────────────
-    var data_           = payload.data     || {};
-    var purchase        = data_.purchase   || {};
-    var buyer           = data_.buyer      || {};
-    var transacao_id    = String(purchase.transaction || "").trim();
-    var email_comprador = String(buyer.email          || "").trim().toLowerCase();
-    var nome_comprador  = String(buyer.name           || "Cliente").trim();
+    _log("FILA_INICIANDO", chaves.length + " item(ns) na fila");
 
-    _log("DADOS_EXTRAIDOS", JSON.stringify({
-      transacao_id: transacao_id,
-      email:        email_comprador,
-      nome:         nome_comprador
-    }));
+    chaves.forEach(function(chave) {
+      var transacaoId = chave.substring("QUEUE_".length);
+      var rawPayload  = todas[chave];
+      _provisionarVenda(transacaoId, rawPayload, props);
+    });
 
-    if (!transacao_id || !email_comprador) {
-      _log("VALIDACAO_FALHOU", "transacao_id ou email ausente no payload");
-      return ContentService
-        .createTextOutput(JSON.stringify({ error: "transacao_id ou email ausente" }))
-        .setMimeType(ContentService.MimeType.JSON);
-    }
+  } finally {
+    lock.releaseLock();
+  }
+}
 
-    // ── Idempotência: aborta se a transação já foi processada ─────────────
-    if (props.getProperty("TX_" + transacao_id)) {
-      _log("DUPLICADA_IGNORADA", transacao_id);
-      return ContentService.createTextOutput(JSON.stringify({ status: "ok" })).setMimeType(ContentService.MimeType.JSON);
-    }
+// =============================================================================
+// PROVISIONAMENTO — lógica pesada isolada, chamada pelo operário
+// =============================================================================
+function _provisionarVenda(transacaoId, rawPayload, props) {
+  _log("PROVISIONAMENTO_INICIADO", transacaoId);
 
-    // ── Verificação das Properties ────────────────────────────────────────
+  try {
+    // Extração completa dos dados do comprador
+    var payload        = JSON.parse(rawPayload);
+    var data_          = payload.data     || {};
+    var buyer          = data_.buyer      || {};
+    var email_comprador = String(buyer.email || "").trim().toLowerCase();
+    var nome_comprador  = String(buyer.name  || "Cliente").trim();
+
+    if (!email_comprador) throw new Error("email do comprador ausente no payload enfileirado");
+
     var masterId = props.getProperty("MASTER_SHEET_ID");
     var pastaId  = props.getProperty("PASTA_CLIENTES_ID");
-    _log("PROPERTIES_CHECK", JSON.stringify({
-      masterId: masterId  ? "ok" : "AUSENTE",
-      pastaId:  pastaId   ? "ok" : "AUSENTE"
-    }));
+    if (!masterId || !pastaId) throw new Error("MASTER_SHEET_ID ou PASTA_CLIENTES_ID nao configurados");
 
-    if (!masterId || !pastaId) {
-      throw new Error("MASTER_SHEET_ID ou PASTA_CLIENTES_ID não configurados");
-    }
-
-    // ── Provisionamento ───────────────────────────────────────────────────
-
-    // 1. Subpasta do cliente dentro de "01. Clientes Ativos"
+    // 1. Subpasta do cliente
     var pastaClientes = DriveApp.getFolderById(pastaId);
-    _log("PASTA_ENCONTRADA", pastaClientes.getName());
-
-    var subpasta = pastaClientes.createFolder(nome_comprador + " — " + transacao_id);
+    var subpasta      = pastaClientes.createFolder(nome_comprador + " — " + transacaoId);
     _log("SUBPASTA_CRIADA", subpasta.getName() + " [" + subpasta.getId() + "]");
 
-    // 2. Cópia do Master nomeada para o cliente
-    var arquivoMaster = DriveApp.getFileById(masterId);
-    var copia         = arquivoMaster.makeCopy("Raio-X ML — " + nome_comprador, subpasta);
+    // 2. Cópia do Master
+    var copia = DriveApp.getFileById(masterId).makeCopy("Raio-X ML — " + nome_comprador, subpasta);
     _log("PLANILHA_COPIADA", copia.getId());
 
-    // 3. Compartilhamento restrito ao e-mail da compra
-    var novaPlanilha  = SpreadsheetApp.openById(copia.getId());
+    // 3. Compartilhamento restrito
+    var novaPlanilha = SpreadsheetApp.openById(copia.getId());
     novaPlanilha.addEditor(email_comprador);
-    // setShareableByEditors pertence a DriveApp.File, não a SpreadsheetApp.Spreadsheet
     DriveApp.getFileById(copia.getId()).setShareableByEditors(false);
     _log("SHARING_OK", email_comprador);
 
-    // 4. Handshake: injeta TRANSACAO_ID como metadado de arquivo
-    novaPlanilha.addDeveloperMetadata("TRANSACAO_ID", transacao_id);
-    _log("METADATA_OK", transacao_id);
+    // 4. Handshake de identidade
+    novaPlanilha.addDeveloperMetadata("TRANSACAO_ID", transacaoId);
+    _log("METADATA_OK", transacaoId);
 
     // 5. E-mail de boas-vindas
     var linkPlanilha = "https://docs.google.com/spreadsheets/d/" + copia.getId() + "/edit";
@@ -150,19 +182,40 @@ function doPost(e) {
     });
     _log("EMAIL_ENVIADO", email_comprador);
 
-    // Marca a transação como concluída — bloqueia reprocessamento de retentativas
-    props.setProperty("TX_" + transacao_id, "true");
-    _log("IDEMPOTENCIA_REGISTRADA", transacao_id);
-
-    return ContentService.createTextOutput(JSON.stringify({ status: "ok" })).setMimeType(ContentService.MimeType.JSON);
+    // Sucesso: remove da fila e grava marca de idempotência
+    props.deleteProperty("QUEUE_" + transacaoId);
+    props.setProperty("TX_" + transacaoId, "true");
+    _log("PROVISIONAMENTO_CONCLUIDO", transacaoId);
 
   } catch(err) {
-    _log("ERROR_FATAL", err.message);
-    return ContentService.createTextOutput(JSON.stringify({ status: "ok" })).setMimeType(ContentService.MimeType.JSON);
+    _log("ERROR_FATAL", transacaoId + " — " + err.message);
+    // Move para fila de erro: não perde a venda, mas para as retentativas automáticas
+    props.deleteProperty("QUEUE_" + transacaoId);
+    props.setProperty("ERROR_QUEUE_" + transacaoId, rawPayload);
+    _log("MOVIDA_PARA_ERROR_QUEUE", transacaoId);
   }
 }
 
-// ── Helpers de e-mail ─────────────────────────────────────────────────────────
+// =============================================================================
+// INSTALAÇÃO DO TRIGGER — executar UMA VEZ no editor GAS (Run → instalarTrigger)
+// =============================================================================
+function instalarTrigger() {
+  // Remove triggers duplicados antes de criar (seguro executar múltiplas vezes)
+  ScriptApp.getProjectTriggers()
+    .filter(function(t) { return t.getHandlerFunction() === "processarFilaVendas"; })
+    .forEach(function(t) { ScriptApp.deleteTrigger(t); });
+
+  ScriptApp.newTrigger("processarFilaVendas")
+    .timeBased()
+    .everyMinutes(1)
+    .create();
+
+  Logger.log("Trigger instalado: processarFilaVendas a cada 1 minuto.");
+}
+
+// =============================================================================
+// HELPERS DE E-MAIL
+// =============================================================================
 
 function _esc(str) {
   return String(str)
