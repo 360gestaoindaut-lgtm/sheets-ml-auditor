@@ -124,9 +124,10 @@ function doPost(e) {
     _log("PLANILHA_COPIADA", copia.getId());
 
     // 3. Compartilhamento restrito ao e-mail da compra
-    var novaPlanilha = SpreadsheetApp.openById(copia.getId());
+    var novaPlanilha  = SpreadsheetApp.openById(copia.getId());
     novaPlanilha.addEditor(email_comprador);
-    novaPlanilha.setShareableByEditors(false);
+    // setShareableByEditors pertence a DriveApp.File, não a SpreadsheetApp.Spreadsheet
+    DriveApp.getFileById(copia.getId()).setShareableByEditors(false);
     _log("SHARING_OK", email_comprador);
 
     // 4. Handshake: injeta TRANSACAO_ID como metadado de arquivo
@@ -143,15 +144,11 @@ function doPost(e) {
     });
     _log("EMAIL_ENVIADO", email_comprador);
 
-    return ContentService
-      .createTextOutput(JSON.stringify({ ok: true, spreadsheetId: copia.getId() }))
-      .setMimeType(ContentService.MimeType.JSON);
+    return ContentService.createTextOutput(JSON.stringify({ status: "ok" })).setMimeType(ContentService.MimeType.JSON);
 
   } catch(err) {
     _log("ERROR_FATAL", err.message);
-    return ContentService
-      .createTextOutput(JSON.stringify({ error: err.message }))
-      .setMimeType(ContentService.MimeType.JSON);
+    return ContentService.createTextOutput(JSON.stringify({ status: "ok" })).setMimeType(ContentService.MimeType.JSON);
   }
 }
 
