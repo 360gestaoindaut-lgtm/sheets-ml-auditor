@@ -71,6 +71,15 @@ O loop principal acessa os resultados via dict lookup, reduzindo chamadas de N+N
 
 `vendedor_id` e `vendedor_nome` são incluídos em cada payload. O backend os lê do payload e os armazena nas variáveis de módulo `_vendedorId` e `_vendedorNome`, que alimentam o Logger360 em todas as linhas de telemetria.
 
+### Handshake Comercial via Hotmart (Fase 12)
+
+O microsserviço de onboarding da Hotmart clona a planilha Master e injeta `TRANSACAO_ID` nas ScriptProperties da cópia. No momento do OAuth:
+
+1. O frontend lê `TRANSACAO_ID` das ScriptProperties e o inclui no `registerCsrfState` POST.
+2. O backend armazena `CSRF_TID_{uuid}` em ScriptProperties ao lado da chave CSRF normal.
+3. Em `doGet`, o `transacao_id` é recuperado e consumido atomicamente junto com o CSRF token.
+4. `_registrarTenant(accessToken, transacaoId)` executa o upsert em três prioridades (ver Banco Central abaixo).
+
 ---
 
 ## Mecanismos de Resiliência e Defesa
@@ -156,7 +165,33 @@ Para provisionar a planilha de um novo seller:
 
 **`CLIENT_SECRET`** nunca deixa o `backend-cofre`. Reside apenas em ScriptProperties do projeto GAS privado.
 
-**CSRF:** `abrirLoginML()` gera um UUID, registra-o no backend via `registerCsrfState`, e usa apenas o UUID como parâmetro `state` do OAuth. `gateway.js:doGet()` resolve UUID → spreadsheetId e apaga o token CSRF atomicamente.
+**CSRF:** `abrirLoginML()` gera um UUID, registra-o no backend via `registerCsrfState`, e usa apenas o UUID como parâmetro `state` do OAuth. `gateway.js:doGet()` resolve UUID → spreadsheetId e apaga o token CSRF atomicamente. O `transacao_id` Hotmart viaja como `CSRF_TID_{uuid}` no mesmo ciclo e é consumido junto.
+
+---
+
+## Banco Central — Aba CLIENTES (CLIENT_SHEET_ID)
+
+ScriptProperty `CLIENT_SHEET_ID` aponta para a planilha do Diretório Central. A aba `CLIENTES` tem 9 colunas (A–I):
+
+| Col | Campo | Observação |
+|-----|-------|------------|
+| A | DATA_CADASTRO | Timestamp do registro (formato `obterDataFormatada360()`) |
+| B | SELLER_ID_360 | 6 dígitos com zeros à esquerda, ex: `"000042"` — formato texto obrigatório |
+| C | SELLER_ID_ML | ID numérico do seller no ML — formato texto obrigatório |
+| D | SELLER_NICKNAME_ML | Nickname no ML, atualizado a cada re-login |
+| E | STATUS | `"Ativo"` / `"Pendente"` |
+| F | NOTAS | Uso livre |
+| G | ORIGEM | `"Hotmart"` ou `"Manual"` |
+| H | TRANSACAO_ID | ID da transação Hotmart; vazio para tenants manuais |
+| I | DATA_ATIVACAO | Timestamp do primeiro OAuth concluído |
+
+**Regras de tipagem:** `setNumberFormat("@")` aplicado nas colunas B e C antes de qualquer `setValues` que grave nelas. Nunca usar `appendRow` nesta aba.
+
+**Upsert — três prioridades de `_registrarTenant`:**
+
+1. **Handshake (col H):** Se `transacaoId` vier no payload, busca na col H. Se encontrar: UPDATE cols C, D, E, I — sem criar nova linha.
+2. **Re-login (col C):** Busca `SELLER_ID_ML` na col C. Se encontrar: atualiza nickname se mudou.
+3. **Novo manual:** Gera próximo `SELLER_ID_360` sequencial e insere linha completa de 9 colunas.
 
 **Lifecycle do token:**
 - `invalid_grant` → `renovarToken()` apaga todas as `UserProperties` e alerta o seller para reconectar.
