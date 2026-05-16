@@ -46,6 +46,13 @@ function _log(tipo, mensagem) {
 }
 
 // =============================================================================
+// ABSORVEDOR DO 302 — evita 405 no downgrade GET feito pela Hotmart
+// =============================================================================
+function doGet(e) {
+  return ContentService.createTextOutput("OK").setMimeType(ContentService.MimeType.TEXT);
+}
+
+// =============================================================================
 // RECEPCIONISTA — retorna HTTP 200 em < 1s
 // =============================================================================
 function doPost(e) {
