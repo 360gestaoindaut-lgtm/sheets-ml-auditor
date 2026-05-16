@@ -27,30 +27,12 @@ var CONFIG = {
 function onOpen() {
   SpreadsheetApp.getUi()
     .createMenu("360 Gestão - ML")
-    .addItem("0. Configurar ID do Cliente",      "abrirConfigurarIdentidade")
-    .addSeparator()
-    .addItem("1. Conectar Conta Mercado Livre",  "abrirLoginML")
-    .addItem("2. Sincronizar Catálogo",           "sincronizarAnuncios")
-    .addItem("3. Rodar Raio-X (Auditoria)",       "abrirSidebarRaioX")
+    .addItem("1. Conectar Conta Mercado Livre", "abrirLoginML")
+    .addItem("2. Sincronizar Catálogo",          "sincronizarAnuncios")
+    .addItem("3. Rodar Raio-X (Auditoria)",      "abrirSidebarRaioX")
     .addSeparator()
     .addItem("Criar Cabeçalho", "criarCabecalho")
     .addToUi();
-}
-
-function abrirConfigurarIdentidade() {
-  var ui    = SpreadsheetApp.getUi();
-  var resId = ui.prompt("Configurar ID do Cliente", "ID do Seller (ex: seller_acme_001):", ui.ButtonSet.OK_CANCEL);
-  if (resId.getSelectedButton() !== ui.Button.OK) return;
-  var resNome = ui.prompt("Configurar ID do Cliente", "Nome do Cliente (ex: Loja Acme):", ui.ButtonSet.OK_CANCEL);
-  if (resNome.getSelectedButton() !== ui.Button.OK) return;
-  configurarIdentidade(resId.getResponseText().trim(), resNome.getResponseText().trim());
-  ui.alert("✅ Identidade configurada!\n\nID: " + resId.getResponseText().trim() + "\nNome: " + resNome.getResponseText().trim());
-}
-
-function configurarIdentidade(idRelatorio, nomeCliente) {
-  var props = PropertiesService.getScriptProperties();
-  props.setProperty("CLIENT_ID",   idRelatorio);
-  props.setProperty("CLIENT_NAME", nomeCliente);
 }
 
 // =============================================================================
@@ -181,7 +163,8 @@ function rodarRaioX() {
   }, 21600);
 
   var scriptProps  = PropertiesService.getScriptProperties();
-  var vendedorId   = scriptProps.getProperty("CLIENT_ID")   || "";
+  var vendedorId   = scriptProps.getProperty("CLIENT_ID")    || "";
+  var vendedorIdMl = scriptProps.getProperty("CLIENT_ID_ML") || "";
   var vendedorNome = scriptProps.getProperty("CLIENT_NAME")  || "";
 
   ss.toast(
@@ -229,9 +212,10 @@ function rodarRaioX() {
           access_token:  token,
           refresh_token: refresh,
           user_id:       userId,
-          ids:           lote.map(function(item) { return item.id; }),
-          vendedor_id:   vendedorId,
-          vendedor_nome: vendedorNome
+          ids:            lote.map(function(item) { return item.id; }),
+          vendedor_id:    vendedorId,
+          vendedor_id_ml: vendedorIdMl,
+          vendedor_nome:  vendedorNome
         }),
         muteHttpExceptions: true
       });

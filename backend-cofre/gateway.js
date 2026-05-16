@@ -29,10 +29,19 @@ function doGet(e) {
 
   var resObj = JSON.parse(response.getContentText());
 
-  // 2. Se deu certo, guarda no cofre usando o ssId (recuperado do CSRF) como chave
+  // 2. Se deu certo: registra/atualiza tenant no Diretório Central e guarda token estendido
   if (resObj.access_token) {
     if (ssId) {
-      props.setProperty("TEMP_TOKEN_" + ssId, response.getContentText());
+      var identidade = _registrarTenant(resObj.access_token);
+      var tokenFinal = {
+        access_token:    resObj.access_token,
+        refresh_token:   resObj.refresh_token,
+        user_id:         resObj.user_id,
+        vendedor_id_360: identidade.vendedor_id_360,
+        vendedor_id_ml:  identidade.vendedor_id_ml,
+        vendedor_nome:   identidade.vendedor_nome
+      };
+      props.setProperty("TEMP_TOKEN_" + ssId, JSON.stringify(tokenFinal));
     }
     return HtmlService.createHtmlOutput(`
       <div style="font-family: sans-serif; text-align: center; padding-top: 50px;">
@@ -48,6 +57,70 @@ function doGet(e) {
         <pre>${JSON.stringify(resObj, null, 2)}</pre>
       </div>
     `);
+  }
+}
+
+/**
+ * Registra ou atualiza o tenant no Diretório Central (planilha CLIENT_SHEET_ID → aba CLIENTES).
+ * Retorna { vendedor_id_360, vendedor_id_ml, vendedor_nome }.
+ * Em qualquer falha retorna strings vazias — autenticação prossegue sem identidade.
+ */
+function _registrarTenant(accessToken) {
+  var vazio = { vendedor_id_360: "", vendedor_id_ml: "", vendedor_nome: "" };
+  var props   = PropertiesService.getScriptProperties();
+  var sheetId = props.getProperty("CLIENT_SHEET_ID");
+  if (!sheetId) return vazio;
+
+  // 1. Obter identidade no ML
+  var meResp = UrlFetchApp.fetch("https://api.mercadolibre.com/users/me", {
+    headers: { "Authorization": "Bearer " + accessToken }, muteHttpExceptions: true
+  });
+  var me = JSON.parse(meResp.getContentText());
+  if (!me || !me.id) return vazio;
+
+  var mlId   = String(me.id);
+  var mlNick = me.nickname || "";
+
+  try {
+    var ss    = SpreadsheetApp.openById(sheetId);
+    var sheet = ss.getSheetByName("CLIENTES");
+    if (!sheet) sheet = ss.insertSheet("CLIENTES");
+
+    var lastRow = sheet.getLastRow();
+    var dados   = lastRow >= 2
+      ? sheet.getRange(2, 2, lastRow - 1, 3).getValues()  // B:D a partir da linha 2
+      : [];
+
+    // 2. Buscar ML ID na coluna C (índice 1 dentro de dados[][])
+    var idxEncontrado = -1;
+    for (var i = 0; i < dados.length; i++) {
+      if (String(dados[i][1]) === mlId) { idxEncontrado = i; break; }
+    }
+
+    if (idxEncontrado >= 0) {
+      // Cliente reconectando — recupera ID 360 e atualiza nickname se mudou
+      var id360 = String(dados[idxEncontrado][0]);
+      if (String(dados[idxEncontrado][2]) !== mlNick) {
+        sheet.getRange(idxEncontrado + 2, 4, 1, 1).setValues([[mlNick]]);
+      }
+      return { vendedor_id_360: id360, vendedor_id_ml: mlId, vendedor_nome: mlNick };
+    }
+
+    // 3. Novo tenant — próximo ID sequencial de 6 dígitos
+    var maxSeq = 0;
+    dados.forEach(function(row) {
+      var n = parseInt(String(row[0]).replace(/\D/g, ""), 10);
+      if (!isNaN(n) && n > maxSeq) maxSeq = n;
+    });
+    var novoId360 = ("000000" + (maxSeq + 1)).slice(-6);
+    var hoje      = Utilities.formatDate(new Date(), "America/Sao_Paulo", "yyyy-MM-dd");
+
+    sheet.getRange(lastRow + 1, 1, 1, 6).setValues([[hoje, novoId360, mlId, mlNick, "Ativo", ""]]);
+    return { vendedor_id_360: novoId360, vendedor_id_ml: mlId, vendedor_nome: mlNick };
+
+  } catch(e) {
+    console.error("_registrarTenant: " + e.message);
+    return { vendedor_id_360: "", vendedor_id_ml: mlId, vendedor_nome: mlNick };
   }
 }
 
@@ -125,8 +198,9 @@ function doPost(e) {
       refresh_token: data.refresh_token,
       user_id:       data.user_id,
       ids:           data.ids,
-      vendedor_id:   data.vendedor_id   || "",
-      vendedor_nome: data.vendedor_nome || ""
+      vendedor_id:    data.vendedor_id    || "",
+      vendedor_id_ml: data.vendedor_id_ml || "",
+      vendedor_nome:  data.vendedor_nome  || ""
     });
     return ContentService
       .createTextOutput(JSON.stringify(resultado))

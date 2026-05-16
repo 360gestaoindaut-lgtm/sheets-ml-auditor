@@ -18,6 +18,7 @@ var _cacheCategoria = {}; // cache de árvore de categorias, por execução
 var _logs         = [];
 var _startBackend = 0;
 var _vendedorId   = "";
+var _vendedorIdMl = "";
 var _vendedorNome = "";
 
 function _log(msg) {
@@ -28,7 +29,7 @@ function checkTimeout() {
   if (Date.now() - _startBackend > 50000) throw new Error("TIMEOUT_INTERNO");
 }
 
-function logImmediate(vendedorId, vendedorNome, idLote, mensagem) {
+function logImmediate(vendedorId360, vendedorIdMl, vendedorNome, idLote, mensagem) {
   var sheetId = PropertiesService.getScriptProperties().getProperty("LOG_SHEET_ID");
   if (!sheetId) return;
   try {
@@ -36,7 +37,7 @@ function logImmediate(vendedorId, vendedorNome, idLote, mensagem) {
     var sheet = ss.getSheetByName("LOGS");
     if (!sheet) sheet = ss.insertSheet("LOGS");
     var nextRow = sheet.getLastRow() + 1;
-    sheet.getRange(nextRow, 1, 1, 5).setValues([[new Date(), vendedorId, vendedorNome, "IMEDIATO", mensagem]]);
+    sheet.getRange(nextRow, 1, 1, 6).setValues([[new Date(), vendedorId360, vendedorIdMl, vendedorNome, "IMEDIATO", mensagem]]);
   } catch(e) {
     console.error("logImmediate: falha — " + e.message);
   }
@@ -55,8 +56,8 @@ function flushLogs(idLote) {
     var sheet = ss.getSheetByName("LOGS");
     if (!sheet) sheet = ss.insertSheet("LOGS");
     var ts   = Utilities.formatDate(new Date(), "America/Sao_Paulo", "yyyy-MM-dd HH:mm:ss");
-    var data = _logs.map(function(msg) { return [ts, _vendedorId, _vendedorNome, idLote, msg]; });
-    sheet.getRange(sheet.getLastRow() + 1, 1, data.length, 5).setValues(data);
+    var data = _logs.map(function(msg) { return [ts, _vendedorId, _vendedorIdMl, _vendedorNome, idLote, msg]; });
+    sheet.getRange(sheet.getLastRow() + 1, 1, data.length, 6).setValues(data);
   } catch(e) {
     console.error("flushLogs: falha ao gravar — " + e.message);
   } finally {
@@ -418,8 +419,9 @@ function _fetchAllPerformance(ids, headers, tentarRefresh) {
 // =============================================================================
 function processarRaioX_Backend(payload) {
   _startBackend    = Date.now();
-  _vendedorId      = payload.vendedor_id   || "";
-  _vendedorNome    = payload.vendedor_nome || "";
+  _vendedorId      = payload.vendedor_id    || "";
+  _vendedorIdMl    = payload.vendedor_id_ml || "";
+  _vendedorNome    = payload.vendedor_nome  || "";
   var token        = payload.access_token;
   var refreshToken = payload.refresh_token;
   var userId       = payload.user_id;
@@ -434,7 +436,7 @@ function processarRaioX_Backend(payload) {
   var idLote = String(ids[0]).slice(-4);
   var tTotal = Date.now();
   _log("INÍCIO: " + ids.length + " IDs | " + new Date().toISOString());
-  logImmediate(_vendedorId, _vendedorNome, idLote, "INÍCIO lote=" + idLote + " | " + ids.length + " IDs | " + new Date().toISOString());
+  logImmediate(_vendedorId, _vendedorIdMl, _vendedorNome, idLote, "INÍCIO lote=" + idLote + " | " + ids.length + " IDs | " + new Date().toISOString());
 
   var headers         = { "Authorization": "Bearer " + token };
   var tokensRenovados = false;
@@ -592,7 +594,7 @@ function processarRaioX_Backend(payload) {
     return resultado;
 
   } catch(err) {
-    logImmediate(_vendedorId, _vendedorNome, idLote, "ERRO FATAL lote=" + idLote + ": " + err.message);
+    logImmediate(_vendedorId, _vendedorIdMl, _vendedorNome, idLote, "ERRO FATAL lote=" + idLote + ": " + err.message);
     _log("ERRO FATAL: " + err.message);
     return { error: err.message, rows: [] };
   } finally {

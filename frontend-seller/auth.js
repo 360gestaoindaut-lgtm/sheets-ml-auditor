@@ -114,4 +114,10 @@ function salvarTokens(data) {
     refresh_token: data.refresh_token,
     user_id:       data.user_id.toString()
   });
+  // Ancora de identidade imutável: gravada no momento do OAuth e nunca depende de input manual
+  PropertiesService.getScriptProperties().setProperties({
+    CLIENT_ID:     data.vendedor_id_360 || "",
+    CLIENT_ID_ML:  data.vendedor_id_ml  || "",
+    CLIENT_NAME:   data.vendedor_nome   || ""
+  });
 }
