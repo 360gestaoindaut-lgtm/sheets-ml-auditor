@@ -37,7 +37,8 @@ function logImmediate(vendedorId360, vendedorIdMl, vendedorNome, idLote, mensage
     var sheet = ss.getSheetByName("LOGS");
     if (!sheet) sheet = ss.insertSheet("LOGS");
     var nextRow = sheet.getLastRow() + 1;
-    sheet.getRange(nextRow, 1, 1, 6).setValues([[new Date(), vendedorId360, vendedorIdMl, vendedorNome, "IMEDIATO", mensagem]]);
+    var ts      = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), "yyyy-MM-dd HH:mm:ss");
+    sheet.getRange(nextRow, 1, 1, 6).setValues([[ts, vendedorId360, vendedorIdMl, vendedorNome, "IMEDIATO", mensagem]]);
   } catch(e) {
     console.error("logImmediate: falha — " + e.message);
   }

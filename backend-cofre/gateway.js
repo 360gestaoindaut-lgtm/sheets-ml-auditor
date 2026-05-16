@@ -115,6 +115,9 @@ function _registrarTenant(accessToken) {
     var novoId360 = ("000000" + (maxSeq + 1)).slice(-6);
     var hoje      = Utilities.formatDate(new Date(), "America/Sao_Paulo", "yyyy-MM-dd");
 
+    // Força formato de texto nas colunas B (ID 360) e C (ID ML) antes de gravar,
+    // garantindo que strings numéricas com zeros à esquerda não sejam convertidas para float.
+    sheet.getRange(lastRow + 1, 2, 1, 2).setNumberFormat("@");
     sheet.getRange(lastRow + 1, 1, 1, 6).setValues([[hoje, novoId360, mlId, mlNick, "Ativo", ""]]);
     return { vendedor_id_360: novoId360, vendedor_id_ml: mlId, vendedor_nome: mlNick };
 
