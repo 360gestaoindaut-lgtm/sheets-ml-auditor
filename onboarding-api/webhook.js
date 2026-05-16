@@ -8,10 +8,44 @@
  *   HOTMART_TOKEN      — token configurado na URL do webhook no painel Hotmart
  *   MASTER_SHEET_ID    — ID da planilha-template (frontend-seller Master)
  *   PASTA_CLIENTES_ID  — ID da pasta "01. Clientes Ativos" no Drive
+ *   LOG_SHEET_ID       — ID da planilha de telemetria (aba LOGS, 6 colunas)
  */
+
+// ── Helper de timestamp ───────────────────────────────────────────────────────
+// Projeto GAS isolado: não compartilha código com backend-cofre, por isso
+// obterDataFormatada360 é definida localmente com a mesma assinatura.
+function obterDataFormatada360(dataOpcional) {
+  var data = dataOpcional || new Date();
+  return Utilities.formatDate(data, Session.getScriptTimeZone(), "yyyy-MM-dd HH:mm:ss");
+}
+
+// ── Logger de telemetria ──────────────────────────────────────────────────────
+// Grava na aba LOGS da planilha LOG_SHEET_ID seguindo o layout de 6 colunas:
+// A=DATA | B=ORIGEM | C=PLATAFORMA | D=AMBIENTE | E=TIPO | F=MENSAGEM
+function _log(tipo, mensagem) {
+  var sheetId = PropertiesService.getScriptProperties().getProperty("LOG_SHEET_ID");
+  if (!sheetId) return;
+  try {
+    var ss    = SpreadsheetApp.openById(sheetId);
+    var sheet = ss.getSheetByName("LOGS");
+    if (!sheet) sheet = ss.insertSheet("LOGS");
+    var nextRow  = sheet.getLastRow() + 1;
+    var conteudo = String(mensagem).slice(0, 49000); // limite de célula GAS
+    sheet.getRange(nextRow, 1, 1, 6).setValues([[
+      obterDataFormatada360(), "WEBHOOK", "HOTMART", "SANDBOX", tipo, conteudo
+    ]]);
+  } catch(e) {
+    console.error("_log: " + e.message);
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 
 function doPost(e) {
   var props = PropertiesService.getScriptProperties();
+
+  // Captura imediata do payload bruto (antes de qualquer parse)
+  var rawPayload = (e.postData && e.postData.contents) ? e.postData.contents : "(sem body)";
 
   // ── Validação do token Hotmart ────────────────────────────────────────────
   // O token é enviado como query param ?hottok=TOKEN na URL do webhook
@@ -22,66 +56,84 @@ function doPost(e) {
       .setMimeType(ContentService.MimeType.JSON);
   }
 
-  // ── Parse do payload ──────────────────────────────────────────────────────
-  var payload;
+  // Log do payload bruto — origem confirmada pelo token
+  _log("PAYLOAD_BRUTO", rawPayload);
+
   try {
-    payload = JSON.parse(e.postData.contents);
-  } catch(err) {
-    return ContentService
-      .createTextOutput(JSON.stringify({ error: "Payload inválido" }))
-      .setMimeType(ContentService.MimeType.JSON);
-  }
+    // ── Parse do payload ──────────────────────────────────────────────────
+    var payload;
+    try {
+      payload = JSON.parse(rawPayload);
+    } catch(parseErr) {
+      _log("PARSE_ERROR", parseErr.message);
+      return ContentService
+        .createTextOutput(JSON.stringify({ error: "Payload inválido" }))
+        .setMimeType(ContentService.MimeType.JSON);
+    }
 
-  // Ignora silenciosamente eventos que não sejam compra aprovada
-  var evento = (payload.event || "").toUpperCase();
-  if (evento !== "PURCHASE_APPROVED") {
-    return ContentService
-      .createTextOutput(JSON.stringify({ ok: true, ignorado: evento }))
-      .setMimeType(ContentService.MimeType.JSON);
-  }
+    // Loga o evento recebido e prossegue — filtro removido temporariamente
+    // para validar o fluxo de Drive com qualquer evento de teste da Hotmart.
+    var evento = (payload.event || "DESCONHECIDO").toUpperCase();
+    _log("EVENTO_RECEBIDO", evento);
 
-  // ── Extração dos dados do comprador ───────────────────────────────────────
-  var data           = payload.data     || {};
-  var purchase       = data.purchase    || {};
-  var buyer          = data.buyer       || {};
-  var transacao_id   = String(purchase.transaction || "").trim();
-  var email_comprador = String(buyer.email         || "").trim().toLowerCase();
-  var nome_comprador  = String(buyer.name          || "Cliente").trim();
+    // ── Extração dos dados do comprador ───────────────────────────────────
+    var data_           = payload.data     || {};
+    var purchase        = data_.purchase   || {};
+    var buyer           = data_.buyer      || {};
+    var transacao_id    = String(purchase.transaction || "").trim();
+    var email_comprador = String(buyer.email          || "").trim().toLowerCase();
+    var nome_comprador  = String(buyer.name           || "Cliente").trim();
 
-  if (!transacao_id || !email_comprador) {
-    return ContentService
-      .createTextOutput(JSON.stringify({ error: "transacao_id ou email ausente" }))
-      .setMimeType(ContentService.MimeType.JSON);
-  }
+    _log("DADOS_EXTRAIDOS", JSON.stringify({
+      transacao_id: transacao_id,
+      email:        email_comprador,
+      nome:         nome_comprador
+    }));
 
-  // ── Provisionamento ───────────────────────────────────────────────────────
-  try {
+    if (!transacao_id || !email_comprador) {
+      _log("VALIDACAO_FALHOU", "transacao_id ou email ausente no payload");
+      return ContentService
+        .createTextOutput(JSON.stringify({ error: "transacao_id ou email ausente" }))
+        .setMimeType(ContentService.MimeType.JSON);
+    }
+
+    // ── Verificação das Properties ────────────────────────────────────────
     var masterId = props.getProperty("MASTER_SHEET_ID");
     var pastaId  = props.getProperty("PASTA_CLIENTES_ID");
+    _log("PROPERTIES_CHECK", JSON.stringify({
+      masterId: masterId  ? "ok" : "AUSENTE",
+      pastaId:  pastaId   ? "ok" : "AUSENTE"
+    }));
+
     if (!masterId || !pastaId) {
       throw new Error("MASTER_SHEET_ID ou PASTA_CLIENTES_ID não configurados");
     }
 
+    // ── Provisionamento ───────────────────────────────────────────────────
+
     // 1. Subpasta do cliente dentro de "01. Clientes Ativos"
     var pastaClientes = DriveApp.getFolderById(pastaId);
-    var subpasta      = pastaClientes.createFolder(nome_comprador + " — " + transacao_id);
+    _log("PASTA_ENCONTRADA", pastaClientes.getName());
+
+    var subpasta = pastaClientes.createFolder(nome_comprador + " — " + transacao_id);
+    _log("SUBPASTA_CRIADA", subpasta.getName() + " [" + subpasta.getId() + "]");
 
     // 2. Cópia do Master nomeada para o cliente
     var arquivoMaster = DriveApp.getFileById(masterId);
     var copia         = arquivoMaster.makeCopy("Raio-X ML — " + nome_comprador, subpasta);
-    var novaPlanilha  = SpreadsheetApp.openById(copia.getId());
+    _log("PLANILHA_COPIADA", copia.getId());
 
     // 3. Compartilhamento restrito ao e-mail da compra
+    var novaPlanilha = SpreadsheetApp.openById(copia.getId());
     novaPlanilha.addEditor(email_comprador);
-    // Bloqueia recompartilhamento: o cliente não pode adicionar outros editores
     novaPlanilha.setShareableByEditors(false);
+    _log("SHARING_OK", email_comprador);
 
-    // 4. Handshake: injeta TRANSACAO_ID como metadado de arquivo (não em ScriptProperties)
-    //    O frontend lê esse valor via createDeveloperMetadataFinder e o envia ao backend
-    //    no registerCsrfState para que _registrarTenant faça o upsert correto (Fase 12).
+    // 4. Handshake: injeta TRANSACAO_ID como metadado de arquivo
     novaPlanilha.addDeveloperMetadata("TRANSACAO_ID", transacao_id);
+    _log("METADATA_OK", transacao_id);
 
-    // 5. E-mail de boas-vindas com link e aviso de acesso restrito
+    // 5. E-mail de boas-vindas
     var linkPlanilha = "https://docs.google.com/spreadsheets/d/" + copia.getId() + "/edit";
     MailApp.sendEmail({
       to:       email_comprador,
@@ -89,13 +141,14 @@ function doPost(e) {
       body:     _emailTexto(nome_comprador, linkPlanilha, email_comprador),
       htmlBody: _emailHtml(nome_comprador, linkPlanilha, email_comprador)
     });
+    _log("EMAIL_ENVIADO", email_comprador);
 
     return ContentService
       .createTextOutput(JSON.stringify({ ok: true, spreadsheetId: copia.getId() }))
       .setMimeType(ContentService.MimeType.JSON);
 
   } catch(err) {
-    console.error("Provisionamento falhou [" + transacao_id + "]: " + err.message);
+    _log("ERROR_FATAL", err.message);
     return ContentService
       .createTextOutput(JSON.stringify({ error: err.message }))
       .setMimeType(ContentService.MimeType.JSON);
