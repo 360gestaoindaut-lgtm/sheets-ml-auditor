@@ -97,6 +97,12 @@ function doPost(e) {
         .setMimeType(ContentService.MimeType.JSON);
     }
 
+    // ── Idempotência: aborta se a transação já foi processada ─────────────
+    if (props.getProperty("TX_" + transacao_id)) {
+      _log("DUPLICADA_IGNORADA", transacao_id);
+      return ContentService.createTextOutput(JSON.stringify({ status: "ok" })).setMimeType(ContentService.MimeType.JSON);
+    }
+
     // ── Verificação das Properties ────────────────────────────────────────
     var masterId = props.getProperty("MASTER_SHEET_ID");
     var pastaId  = props.getProperty("PASTA_CLIENTES_ID");
@@ -143,6 +149,10 @@ function doPost(e) {
       htmlBody: _emailHtml(nome_comprador, linkPlanilha, email_comprador)
     });
     _log("EMAIL_ENVIADO", email_comprador);
+
+    // Marca a transação como concluída — bloqueia reprocessamento de retentativas
+    props.setProperty("TX_" + transacao_id, "true");
+    _log("IDEMPOTENCIA_REGISTRADA", transacao_id);
 
     return ContentService.createTextOutput(JSON.stringify({ status: "ok" })).setMimeType(ContentService.MimeType.JSON);
 
