@@ -116,33 +116,66 @@ O backend precisa estar publicado como Web App para receber requisições. Faça
 
 ## Configuração de um novo tenant (onboarding)
 
+### Via Hotmart (automático — caminho principal)
+
+O microsserviço `onboarding-api` processa a compra aprovada sem intervenção manual:
+
+1. Hotmart dispara o webhook `PURCHASE_APPROVED` para a URL do `onboarding-api`.
+2. O serviço clona a planilha Master, compartilha com o e-mail do comprador e envia o link por e-mail.
+3. O `TRANSACAO_ID` é gravado nos metadados do arquivo (`addDeveloperMetadata`).
+4. O seller abre a planilha → menu **1. Conectar Conta Mercado Livre** → o OAuth preenche a identidade automaticamente via handshake (Fase 12).
+5. Menu **2. Sincronizar Catálogo** → popula os IDs MLB.
+6. Menu **3. Rodar Raio-X (Auditoria)** → inicia a auditoria.
+
+### Onboarding manual (fallback)
+
 1. Duplique a planilha Master `frontend-seller` no Google Drive.
-2. Abra a nova planilha → menu **360 Gestão - ML → 0. Configurar ID do Cliente**.
-   - **ID do Seller:** string de 6 dígitos com zeros à esquerda (ex: `"000042"`) — identificador único do tenant nos logs.
-   - **Nome do Cliente:** nome legível (ex: `"Loja Acme"`).
-3. Menu **1. Conectar Conta Mercado Livre** → o seller autoriza o OAuth.
-4. Menu **2. Sincronizar Catálogo** → popula a coluna B da aba DESEMPENHO com todos os IDs MLB.
-5. Clicar em **Criar Cabeçalho** se a aba DESEMPENHO for nova.
-6. Menu **3. Rodar Raio-X (Auditoria)** → inicia a auditoria. O painel lateral mostra o progresso.
+2. Menu **1. Conectar Conta Mercado Livre** → o seller autoriza o OAuth (cria novo registro sequencial no Banco Central).
+3. Menu **2. Sincronizar Catálogo** → popula os IDs MLB.
+4. Clicar em **Criar Cabeçalho** se a aba DESEMPENHO for nova.
+5. Menu **3. Rodar Raio-X (Auditoria)** → inicia a auditoria.
 
 ---
 
 ## Fluxo de deploy (dia a dia)
 
 ```bash
-# Editar arquivos → push para o GAS
-
 # Frontend (planilha do seller)
-cd frontend-seller
-clasp push --force
+cd frontend-seller && clasp push --force
 
 # Backend (servidor privado)
-cd ../backend-cofre
-clasp push --force
+cd ../backend-cofre && clasp push --force
+
+# Onboarding API (microsserviço Hotmart)
+cd ../onboarding-api && clasp push --force
 ```
 
 Logs de execução ficam no **Google Cloud Stackdriver**: editor GAS → Execuções.  
-Logs de telemetria fina ficam na planilha configurada em `LOG_SHEET_ID` → aba **LOGS** (5 colunas: DATA | VENDEDOR_ID | VENDEDOR_NOME | LOTE | MENSAGEM).
+Logs de telemetria fina ficam na planilha configurada em `LOG_SHEET_ID` → aba **LOGS** (6 colunas: DATA | VENDEDOR_ID_360 | VENDEDOR_ID_ML | VENDEDOR_NOME | LOTE | MENSAGEM).
+
+### Setup inicial do onboarding-api (único por máquina)
+
+O `onboarding-api` é um projeto GAS separado que ainda não tem `.clasp.json` neste repo. Para vincular:
+
+```bash
+cd onboarding-api
+clasp create --title "360 Onboarding API" --type webapp
+# O clasp cria .clasp.json com o novo Script ID
+clasp push --force
+```
+
+Depois, no editor GAS do `onboarding-api`:
+
+1. **Implantar → Nova implantação** → Tipo: Web App → Executar como: Eu → Acesso: Qualquer pessoa, mesmo anônimos.
+2. Em **Configurações do projeto → Propriedades do script**, adicione:
+
+| Chave | Valor |
+|-------|-------|
+| `HOTMART_TOKEN` | Token secreto — configure o mesmo valor na URL do webhook no painel Hotmart como `?hottok=TOKEN` |
+| `MASTER_SHEET_ID` | ID da planilha Master `frontend-seller` |
+| `PASTA_CLIENTES_ID` | ID da pasta "01. Clientes Ativos" no Drive |
+
+3. No painel Hotmart, configure o webhook para a URL gerada + `?hottok=TOKEN`, evento `purchase.approved`.
 
 ---
 
@@ -171,10 +204,14 @@ A API do Mercado Livre não requer chave de API para leitura pública, mas exige
 ├── README.md                  # Este arquivo
 ├── .gitignore
 │
+├── onboarding-api/            # GAS project: microsserviço de webhook Hotmart
+│   ├── appsscript.json        # Manifest: webapp anônimo, escopos Drive/Sheets/MailApp
+│   └── webhook.js             # doPost: valida hottok, clona Master, envia e-mail
+│
 ├── frontend-seller/
 │   ├── .clasp.json            # Vínculo com o Script ID do projeto GAS do frontend
 │   ├── appsscript.json        # Manifest GAS (timezone, runtime)
-│   ├── auth.js                # OAuth ML: CLIENT_ID, WEB_APP_URL, INTERNAL_API_KEY, CSRF, polling
+│   ├── auth.js                # OAuth ML: CSRF, leitura de TRANSACAO_ID via metadata, polling
 │   ├── router.js              # Terminal: sincroniza catálogo, roda auditoria, sidebar
 │   └── sidebar.html           # Painel lateral: barra de progresso + dicas SEO rotativas
 │

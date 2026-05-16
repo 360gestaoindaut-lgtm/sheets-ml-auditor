@@ -8,8 +8,21 @@ var INTERNAL_API_KEY = "360_KEY_XAMdyAZnZk1BHZ57EswLstUryZpV22PW"; // mesmo valo
 /**
  * Registra o par uuid → spreadsheetId no backend ANTES de abrir a URL do ML.
  * Garante que o parâmetro `state` da URL nunca exponha o ID da planilha em texto puro (Vuln. D).
+ * Se a planilha tiver metadado TRANSACAO_ID (injetado pelo onboarding Hotmart), ele é incluído
+ * no payload para que o backend faça o handshake de identidade na Fase 12.
  */
 function registrarCsrfState(uuid, ssId) {
+  var transacaoId = "";
+  try {
+    var metadados = SpreadsheetApp.getActiveSpreadsheet()
+      .createDeveloperMetadataFinder()
+      .withKey("TRANSACAO_ID")
+      .find();
+    if (metadados.length > 0) transacaoId = metadados[0].getValue();
+  } catch(err) {
+    console.error("registrarCsrfState: falha ao ler TRANSACAO_ID — " + err.message);
+  }
+
   UrlFetchApp.fetch(WEB_APP_URL, {
     method:             "post",
     contentType:        "application/json",
@@ -17,7 +30,8 @@ function registrarCsrfState(uuid, ssId) {
       action:        "registerCsrfState",
       uuid:          uuid,
       spreadsheetId: ssId,
-      apiKey:        INTERNAL_API_KEY
+      apiKey:        INTERNAL_API_KEY,
+      transacao_id:  transacaoId   // "" para tenants manuais — backend ignora valor vazio
     }),
     muteHttpExceptions: true
   });

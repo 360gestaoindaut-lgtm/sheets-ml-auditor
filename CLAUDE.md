@@ -6,13 +6,14 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Visão Geral do Sistema
 
-360-Auditor-ML é uma plataforma SaaS multi-tenant de auditoria para sellers do Mercado Livre, implementada como dois projetos Google Apps Script (GAS) independentes que se comunicam exclusivamente via HTTP POST autenticado.
+360-Auditor-ML é uma plataforma SaaS multi-tenant de auditoria para sellers do Mercado Livre, implementada como **três projetos Google Apps Script (GAS)** independentes.
 
-**Arquitetura Thin Client / Terminal Burro:**
-- O `frontend-seller` é um terminal burro: coleta IDs da planilha, empacota lotes e imprime as linhas de volta. Zero inteligência de negócio.
-- O `backend-cofre` é o cérebro: executa todas as chamadas à API do ML, a classificação Squad 360 e os cálculos de performance. Nunca é compartilhado com o cliente.
+**Arquitetura:**
+- `onboarding-api` — microsserviço de entrada: recebe webhooks Hotmart, clona a planilha Master e entrega acesso ao cliente via e-mail. Não conhece nada do backend-cofre.
+- `frontend-seller` é um terminal burro: coleta IDs da planilha, empacota lotes e imprime as linhas de volta. Zero inteligência de negócio.
+- `backend-cofre` é o cérebro: executa todas as chamadas à API do ML, a classificação Squad 360 e os cálculos de performance. Nunca é compartilhado com o cliente.
 
-Cada seller recebe uma cópia da planilha `frontend-seller` configurada com seu `CLIENT_ID` e `CLIENT_NAME`. O backend é único e serve todos os tenants.
+Cada seller recebe uma cópia da planilha `frontend-seller` configurada automaticamente pelo `onboarding-api`. O backend-cofre é único e serve todos os tenants.
 
 ---
 
@@ -20,8 +21,12 @@ Cada seller recebe uma cópia da planilha `frontend-seller` configurada com seu 
 
 ```
 360-Auditor-ML/
+├── onboarding-api/           # GAS project: microsserviço de entrada (Hotmart webhook)
+│   ├── appsscript.json       # Manifest: webapp anônimo, escopos Drive/Sheets/MailApp
+│   └── webhook.js            # doPost: valida hottok, clona Master, compartilha, envia e-mail
+│
 ├── frontend-seller/          # GAS project: planilha add-on do seller
-│   ├── auth.js               # OAuth flow: UUID CSRF, long polling, captura de token
+│   ├── auth.js               # OAuth flow: CSRF, leitura de TRANSACAO_ID via metadata, polling
 │   ├── router.js             # Terminal: lê IDs → envia lotes ao backend → escreve linhas
 │   └── sidebar.html          # Painel lateral: barra de progresso + dicas SEO rotativas
 │
@@ -234,6 +239,54 @@ var CONFIG = {
 `engine.js:_rowErro()` e o array `row` em `processarRaioX_Backend` devem estar sincronizados com `router.js:criarCabecalho()`.
 
 Ordem: `CONTA | ID | SKU | TÍTULO | STATUS | CATEGORIA | SQUAD 360 | AÇÃO RECOMENDADA` | `VENDAS/UNIDADES/VISITAS/CONV × {Geral, 30d, 15d, 7d}` | `ESTOQUE | PREÇO | SCORE` | 13 colunas de checklist (AB–AN).
+
+---
+
+## Microsserviço onboarding-api (Fase 13)
+
+Projeto GAS **isolado** — não compartilha código, ScriptProperties nem secrets com o backend-cofre.
+
+### Fluxo de provisionamento
+
+```
+Hotmart ──POST /webhook?hottok=TOKEN──► onboarding-api/webhook.js
+                                              │
+                                         Valida hottok
+                                              │
+                                   Extrai transacao_id, email, nome
+                                              │
+                              DriveApp.getFolderById(PASTA_CLIENTES_ID)
+                                .createFolder(nome + " — " + transacao_id)
+                                              │
+                              DriveApp.getFileById(MASTER_SHEET_ID)
+                                .makeCopy("Raio-X ML — " + nome, subpasta)
+                                              │
+                              novaPlanilha.addEditor(email_comprador)
+                              novaPlanilha.setShareableByEditors(false)
+                              novaPlanilha.addDeveloperMetadata("TRANSACAO_ID", transacao_id)
+                                              │
+                              MailApp.sendEmail(email_comprador, link + aviso)
+```
+
+### ScriptProperties do onboarding-api
+
+| Chave | Valor |
+|-------|-------|
+| `HOTMART_TOKEN` | Token configurado na URL do webhook no painel Hotmart (parâmetro `?hottok=`) |
+| `MASTER_SHEET_ID` | ID da planilha `frontend-seller` Master (template) |
+| `PASTA_CLIENTES_ID` | ID da pasta "01. Clientes Ativos" no Drive da 360 Gestão |
+
+### Como TRANSACAO_ID chega ao backend
+
+1. `onboarding-api` grava `TRANSACAO_ID` via `addDeveloperMetadata` na cópia do seller.
+2. Quando o seller conecta o ML, `auth.js:registrarCsrfState` lê o metadado com `createDeveloperMetadataFinder` e inclui `transacao_id` no POST para `registerCsrfState`.
+3. O `backend-cofre/gateway.js` armazena `CSRF_TID_{uuid}`, recupera em `doGet` e passa para `_registrarTenant`, que executa o handshake pela Prioridade 1 (col H da aba CLIENTES).
+
+### Validação de segurança
+
+- Requisições sem `hottok` correto retornam HTTP 200 com `{ error: "Unauthorized" }` — evita vazar que o endpoint existe.
+- Eventos com `event !== "PURCHASE_APPROVED"` são ignorados silenciosamente (retornam `ok: true, ignorado: evento`).
+- HTML nos e-mails é escapado via `_esc()` antes de interpolação.
 
 ---
 
