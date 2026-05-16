@@ -21,6 +21,11 @@ var _vendedorId   = "";
 var _vendedorIdMl = "";
 var _vendedorNome = "";
 
+function obterDataFormatada360(dataOpcional) {
+  var data = dataOpcional || new Date();
+  return Utilities.formatDate(data, Session.getScriptTimeZone(), "yyyy-MM-dd HH:mm:ss");
+}
+
 function _log(msg) {
   _logs.push(msg);
 }
@@ -37,7 +42,7 @@ function logImmediate(vendedorId360, vendedorIdMl, vendedorNome, idLote, mensage
     var sheet = ss.getSheetByName("LOGS");
     if (!sheet) sheet = ss.insertSheet("LOGS");
     var nextRow = sheet.getLastRow() + 1;
-    var ts      = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), "yyyy-MM-dd HH:mm:ss");
+    var ts      = obterDataFormatada360();
     sheet.getRange(nextRow, 1, 1, 6).setValues([[ts, vendedorId360, vendedorIdMl, vendedorNome, "IMEDIATO", mensagem]]);
   } catch(e) {
     console.error("logImmediate: falha — " + e.message);
@@ -56,7 +61,7 @@ function flushLogs(idLote) {
     var ss    = SpreadsheetApp.openById(sheetId);
     var sheet = ss.getSheetByName("LOGS");
     if (!sheet) sheet = ss.insertSheet("LOGS");
-    var ts   = Utilities.formatDate(new Date(), "America/Sao_Paulo", "yyyy-MM-dd HH:mm:ss");
+    var ts   = obterDataFormatada360();
     var data = _logs.map(function(msg) { return [ts, _vendedorId, _vendedorIdMl, _vendedorNome, idLote, msg]; });
     sheet.getRange(sheet.getLastRow() + 1, 1, data.length, 6).setValues(data);
   } catch(e) {

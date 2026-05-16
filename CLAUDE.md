@@ -176,6 +176,8 @@ Para provisionar a planilha de um novo seller:
 
 5. **`logImmediate` e `flushLogs` usam `setValues`, nunca `appendRow`.** Garantia de tipagem estrita para `VENDEDOR_ID` com zeros à esquerda.
 
+6. **Todos os timestamps usam `obterDataFormatada360()`.** Helper definido em `engine.js`; usa `Session.getScriptTimeZone()` e formato `"yyyy-MM-dd HH:mm:ss"`. Nunca chamar `Utilities.formatDate` inline — garante fuso horário consistente e facilita mudanças centralizadas. `gateway.js` chama essa função por ser co-deployado no mesmo projeto GAS.
+
 ---
 
 ## CONFIG em router.js

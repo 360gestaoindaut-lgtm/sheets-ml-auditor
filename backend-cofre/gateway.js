@@ -113,7 +113,7 @@ function _registrarTenant(accessToken) {
       if (!isNaN(n) && n > maxSeq) maxSeq = n;
     });
     var novoId360 = ("000000" + (maxSeq + 1)).slice(-6);
-    var hoje      = Utilities.formatDate(new Date(), "America/Sao_Paulo", "yyyy-MM-dd");
+    var hoje      = obterDataFormatada360();
 
     // Força formato de texto nas colunas B (ID 360) e C (ID ML) antes de gravar,
     // garantindo que strings numéricas com zeros à esquerda não sejam convertidas para float.
