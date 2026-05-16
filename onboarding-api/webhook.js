@@ -49,7 +49,7 @@ function _log(tipo, mensagem) {
 // ABSORVEDOR DO 302 — evita 405 no downgrade GET feito pela Hotmart
 // =============================================================================
 function doGet(e) {
-  return ContentService.createTextOutput("OK").setMimeType(ContentService.MimeType.TEXT);
+  return HtmlService.createHtmlOutput("OK");
 }
 
 // =============================================================================
@@ -62,8 +62,7 @@ function doPost(e) {
   // ── Validação do token Hotmart ────────────────────────────────────────────
   var hottokEsperado = props.getProperty("HOTMART_TOKEN");
   if (!hottokEsperado || e.parameter.hottok !== hottokEsperado) {
-    return ContentService.createTextOutput(JSON.stringify({ status: "ok" }))
-      .setMimeType(ContentService.MimeType.JSON);
+    return HtmlService.createHtmlOutput("OK");
   }
 
   // Log do payload bruto — origem confirmada
@@ -78,36 +77,31 @@ function doPost(e) {
     _log("EVENTO_RECEBIDO", evento);
   } catch(parseErr) {
     _log("PARSE_ERROR", parseErr.message);
-    return ContentService.createTextOutput(JSON.stringify({ status: "ok" }))
-      .setMimeType(ContentService.MimeType.JSON);
+    return HtmlService.createHtmlOutput("OK");
   }
 
   if (!transacao_id) {
     _log("TRANSACAO_AUSENTE", "transacao_id nao encontrado no payload");
-    return ContentService.createTextOutput(JSON.stringify({ status: "ok" }))
-      .setMimeType(ContentService.MimeType.JSON);
+    return HtmlService.createHtmlOutput("OK");
   }
 
   // ── Idempotência: já foi processado com sucesso? ──────────────────────────
   if (props.getProperty("TX_" + transacao_id)) {
     _log("DUPLICADA_IGNORADA", transacao_id);
-    return ContentService.createTextOutput(JSON.stringify({ status: "ok" }))
-      .setMimeType(ContentService.MimeType.JSON);
+    return HtmlService.createHtmlOutput("OK");
   }
 
   // ── Já está na fila? (retentativa antes do operário rodar) ───────────────
   if (props.getProperty("QUEUE_" + transacao_id)) {
     _log("JA_NA_FILA", transacao_id);
-    return ContentService.createTextOutput(JSON.stringify({ status: "ok" }))
-      .setMimeType(ContentService.MimeType.JSON);
+    return HtmlService.createHtmlOutput("OK");
   }
 
   // ── Enfileira e retorna ───────────────────────────────────────────────────
   props.setProperty("QUEUE_" + transacao_id, rawPayload);
   _log("VENDA_ENFILEIRADA", transacao_id);
 
-  return ContentService.createTextOutput(JSON.stringify({ status: "ok" }))
-    .setMimeType(ContentService.MimeType.JSON);
+  return HtmlService.createHtmlOutput("OK");
 }
 
 // =============================================================================
