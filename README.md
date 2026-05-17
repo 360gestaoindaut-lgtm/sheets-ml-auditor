@@ -13,20 +13,20 @@ Sellers do Mercado Livre com catálogos grandes (centenas a milhares de anúncio
 
 ---
 
-## Arquitetura em duas frentes
+## Arquitetura em três frentes
 
 ```
-frontend-seller/                         backend-cofre/
-────────────────                         ──────────────
-Planilha Google Sheets (por tenant)      Servidor privado 360 Gestão (único)
-router.js: lê IDs → envia lote ─────────► gateway.js: valida apiKey → despacha
-sidebar.html: painel de progresso        engine.js: chama API ML, classifica,
-auth.js: OAuth flow ML                             monta linhas, loga telemetria
-         ◄── { rows[][], novos_tokens? } ─────────
-         escreve linhas por posição
+onboarding-api/                          frontend-seller/                         backend-cofre/
+───────────────                          ────────────────                         ──────────────
+Microsserviço de entrada                 Planilha Google Sheets (por tenant)      Servidor privado 360 Gestão (único)
+webhook.js: recebe Hotmart ──clona──►    Planilha provisionada                    gateway.js: valida apiKey → despacha
+registra no Banco Central                router.js: lê IDs → envia lote ────────► engine.js: chama API ML, classifica,
+envia e-mail ao comprador                sidebar.html: painel de progresso                  monta linhas, loga telemetria
+                                         auth.js: OAuth flow ML          ◄── { rows[][], novos_tokens? } ────
+                                                  escreve linhas por posição
 ```
 
-Cada tenant recebe uma cópia isolada da planilha `frontend-seller`. O `backend-cofre` é compartilhado e nunca distribuído. Consulte [`CLAUDE.md`](CLAUDE.md) para a documentação técnica completa (contratos, invariantes, resiliência).
+Cada tenant recebe uma cópia isolada da planilha `frontend-seller` provisionada automaticamente pelo `onboarding-api`. O `backend-cofre` é compartilhado e nunca distribuído. Consulte [`CLAUDE.md`](CLAUDE.md) para a documentação técnica completa (contratos, invariantes, resiliência).
 
 ---
 
@@ -36,7 +36,7 @@ Cada tenant recebe uma cópia isolada da planilha `frontend-seller`. O `backend-
 |---|---|---|
 | Node.js | 18 LTS | [nodejs.org](https://nodejs.org) |
 | clasp | 3.x | `npm install -g @google/clasp` |
-| Conta Google | — | Mesma conta proprietária dos dois projetos GAS |
+| Conta Google | — | Mesma conta proprietária dos três projetos GAS |
 | Apps Script API | habilitada | [script.google.com/home/usersettings](https://script.google.com/home/usersettings) → ativar |
 
 > O projeto foi desenvolvido e homologado com Node.js v24 e clasp v3.3.0.
@@ -64,7 +64,7 @@ npm install -g @google/clasp
 clasp login
 ```
 
-O navegador abrirá o fluxo OAuth do Google. Use a conta `360gestaoindaut@gmail.com` (proprietária dos dois projetos GAS). O token de autenticação é salvo em `~/.clasprc.json` (fora do repositório).
+O navegador abrirá o fluxo OAuth do Google. Use a conta `360gestaoindaut@gmail.com` (proprietária dos três projetos GAS). O token de autenticação é salvo em `~/.clasprc.json` (fora do repositório).
 
 > **Atenção:** o `clasp login` precisa ser feito uma única vez por máquina. Se já estiver autenticado com outra conta, faça `clasp logout` primeiro.
 
@@ -74,13 +74,15 @@ Os arquivos `.clasp.json` em cada diretório já apontam para os Script IDs corr
 
 | Diretório | Script ID |
 |---|---|
+| `onboarding-api/` | `1yy_LI5q_PIvrokFGQCyrwcub9T6xpYKJ0mQm1U86wXqmsd0MubdjAiwW` |
 | `frontend-seller/` | `1UuGyNnXAdrtiBhk9Fn_gJNxdCr3FOxZ4aAXTUuwxblyaZa17qgELMe5C` |
 | `backend-cofre/` | `1jmiOgxTRQNJCG44O4Exk3mFHnyRhfF4yN2g3uBnq8VDcrjUuLF63ovVQ` |
 
 Confirme que o push funciona antes de fazer qualquer alteração:
 
 ```bash
-cd frontend-seller && clasp push --force
+cd onboarding-api && clasp push --force
+cd ../frontend-seller && clasp push --force
 cd ../backend-cofre && clasp push --force
 ```
 
@@ -155,16 +157,16 @@ Logs de telemetria fina ficam na planilha configurada em `LOG_SHEET_ID` → aba 
 
 ### Setup inicial do onboarding-api (único por máquina)
 
-O `onboarding-api` é um projeto GAS separado que ainda não tem `.clasp.json` neste repo. Para vincular:
+O `onboarding-api` já tem `.clasp.json` vinculado ao projeto GAS. Para re-criar em outra conta:
 
 ```bash
 cd onboarding-api
-clasp create --title "360 Onboarding API" --type webapp
-# O clasp cria .clasp.json com o novo Script ID
+clasp create --title "360 Onboarding API" --type standalone
+# O clasp cria um novo .clasp.json — atualize o Script ID nos registros internos
 clasp push --force
 ```
 
-Depois, no editor GAS do `onboarding-api`:
+No editor GAS do `onboarding-api`:
 
 1. **Implantar → Nova implantação** → Tipo: Web App → Executar como: Eu → Acesso: Qualquer pessoa, mesmo anônimos.
 2. Em **Configurações do projeto → Propriedades do script**, adicione:
@@ -174,8 +176,11 @@ Depois, no editor GAS do `onboarding-api`:
 | `HOTMART_TOKEN` | Token secreto — configure o mesmo valor na URL do webhook no painel Hotmart como `?hottok=TOKEN` |
 | `MASTER_SHEET_ID` | ID da planilha Master `frontend-seller` |
 | `PASTA_CLIENTES_ID` | ID da pasta "01. Clientes Ativos" no Drive |
+| `CLIENT_SHEET_ID` | ID da planilha do Diretório Central (Banco Central de tenants) |
+| `LOG_SHEET_ID` | ID da planilha de telemetria (aba LOGS) |
 
 3. No painel Hotmart, configure o webhook para a URL gerada + `?hottok=TOKEN`, evento `purchase.approved`.
+4. No editor GAS, execute `instalarTrigger()` uma única vez para agendar o worker `processarFilaVendas` a cada 1 minuto.
 
 ---
 
@@ -205,8 +210,9 @@ A API do Mercado Livre não requer chave de API para leitura pública, mas exige
 ├── .gitignore
 │
 ├── onboarding-api/            # GAS project: microsserviço de webhook Hotmart
-│   ├── appsscript.json        # Manifest: webapp anônimo, escopos Drive/Sheets/MailApp
-│   └── webhook.js             # doPost: valida hottok, clona Master, envia e-mail
+│   ├── .clasp.json            # Vínculo com o Script ID do projeto GAS do onboarding
+│   ├── appsscript.json        # Manifest: webapp anônimo, escopos Drive/Sheets/MailApp/scriptapp
+│   └── webhook.js             # doPost: valida hottok, enfileira; worker: provisiona, registra, envia e-mail
 │
 ├── frontend-seller/
 │   ├── .clasp.json            # Vínculo com o Script ID do projeto GAS do frontend

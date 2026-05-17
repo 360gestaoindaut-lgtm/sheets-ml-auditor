@@ -78,9 +78,9 @@ O loop principal acessa os resultados via dict lookup, reduzindo chamadas de N+N
 
 ### Handshake Comercial via Hotmart (Fase 12)
 
-O microsserviço de onboarding da Hotmart clona a planilha Master e injeta `TRANSACAO_ID` nas ScriptProperties da cópia. No momento do OAuth:
+O microsserviço de onboarding da Hotmart clona a planilha Master e injeta `TRANSACAO_ID` via `addDeveloperMetadata` na cópia. No momento do OAuth:
 
-1. O frontend lê `TRANSACAO_ID` das ScriptProperties e o inclui no `registerCsrfState` POST.
+1. O frontend lê `TRANSACAO_ID` dos metadados da planilha via `createDeveloperMetadataFinder` e o inclui no `registerCsrfState` POST.
 2. O backend armazena `CSRF_TID_{uuid}` em ScriptProperties ao lado da chave CSRF normal.
 3. Em `doGet`, o `transacao_id` é recuperado e consumido atomicamente junto com o CSRF token.
 4. `_registrarTenant(accessToken, transacaoId)` executa o upsert em três prioridades (ver Banco Central abaixo).
@@ -132,11 +132,11 @@ O backend usa dois modos de gravação de telemetria, ativados pela ScriptProper
 | `logImmediate()` | Escrita imediata via `Range.setValues()` | INÍCIO do lote e ERROS FATAIS | Sobrevive ao Hard Kill de 360s |
 | `flushLogs()` | Batch via `Range.setValues()` no `finally` | Fim de cada lote | Telemetria fina de timing |
 
-**Layout das 5 colunas na aba LOGS:**
+**Layout das 6 colunas na aba LOGS:**
 
-| A | B | C | D | E |
-|---|---|---|---|---|
-| DATA | VENDEDOR_ID | VENDEDOR_NOME | LOTE / "IMEDIATO" | MENSAGEM |
+| A | B | C | D | E | F |
+|---|---|---|---|---|---|
+| DATA | VENDEDOR_ID_360 | VENDEDOR_ID_ML | VENDEDOR_NOME | LOTE / "IMEDIATO" | MENSAGEM |
 
 > **Tipagem estrita:** ambas as funções usam `Range.setValues()`, nunca `appendRow()`. Isso preserva zeros à esquerda em `VENDEDOR_ID` (padrão `"000000"`) — `appendRow` convertiria a string numérica para float.
 
@@ -150,17 +150,13 @@ Para provisionar a planilha de um novo seller:
 
 1. **Cópia da Master:** Duplique a planilha `frontend-seller` Master. Cada tenant deve ter sua própria cópia isolada.
 
-2. **Configurar ID do Cliente:** No menu **"360 Gestão - ML → 0. Configurar ID do Cliente"**, insira:
-   - **ID do Seller:** string de 6 dígitos com zeros à esquerda (ex: `"000042"`) — salvo em `ScriptProperties['CLIENT_ID']`
-   - **Nome do Cliente:** nome legível (ex: `"Loja Acme"`) — salvo em `ScriptProperties['CLIENT_NAME']`
+2. **Autorização OAuth:** No menu **"1. Conectar Conta Mercado Livre"**, o seller autoriza o acesso. O `access_token` e `refresh_token` ficam em `UserProperties` da planilha do seller. O `CLIENT_SECRET` nunca sai do `backend-cofre`.
 
-3. **Autorização OAuth:** No menu **"1. Conectar Conta Mercado Livre"**, o seller autoriza o acesso. O `access_token` e `refresh_token` ficam em `UserProperties` da planilha do seller. O `CLIENT_SECRET` nunca sai do `backend-cofre`.
+3. **Sincronizar Catálogo:** Menu **"2. Sincronizar Catálogo"** varre todos os anúncios ativos/pausados e preenche a coluna B (IDs MLB) na aba DESEMPENHO.
 
-4. **Sincronizar Catálogo:** Menu **"2. Sincronizar Catálogo"** varre todos os anúncios ativos/pausados e preenche a coluna B (IDs MLB) na aba DESEMPENHO.
+4. **Criar Cabeçalho:** Se a aba DESEMPENHO for nova, usar **"Criar Cabeçalho"** antes da primeira auditoria.
 
-5. **Criar Cabeçalho:** Se a aba DESEMPENHO for nova, usar **"Criar Cabeçalho"** antes da primeira auditoria.
-
-6. **Rodar Raio-X:** Menu **"3. Rodar Raio-X (Auditoria)"** abre o painel lateral e inicia a auditoria. O progresso é visível em tempo real no sidebar.
+5. **Rodar Raio-X:** Menu **"3. Rodar Raio-X (Auditoria)"** abre o painel lateral e inicia a auditoria. O progresso é visível em tempo real no sidebar.
 
 ---
 
@@ -246,26 +242,38 @@ Ordem: `CONTA | ID | SKU | TÍTULO | STATUS | CATEGORIA | SQUAD 360 | AÇÃO REC
 
 Projeto GAS **isolado** — não compartilha código, ScriptProperties nem secrets com o backend-cofre.
 
-### Fluxo de provisionamento
+### Fluxo de provisionamento (assíncrono)
 
 ```
-Hotmart ──POST /webhook?hottok=TOKEN──► onboarding-api/webhook.js
+Hotmart ──POST /webhook?hottok=TOKEN──► doPost (recepcionista)
                                               │
-                                         Valida hottok
+                                     Valida hottok; extrai transacao_id
+                                     props.setProperty("QUEUE_"+txId, rawPayload)
                                               │
-                                   Extrai transacao_id, email, nome
+                                     return HtmlService("OK")  ← < 1s
                                               │
-                              DriveApp.getFolderById(PASTA_CLIENTES_ID)
-                                .createFolder(nome + " — " + transacao_id)
+                         [trigger a cada 1 min]
                                               │
-                              DriveApp.getFileById(MASTER_SHEET_ID)
-                                .makeCopy("Raio-X ML — " + nome, subpasta)
+                              processarFilaVendas → _provisionarVenda
                                               │
-                              novaPlanilha.addEditor(email_comprador)
-                              novaPlanilha.setShareableByEditors(false)
-                              novaPlanilha.addDeveloperMetadata("TRANSACAO_ID", transacao_id)
+                                   Regista no Banco Central (CLIENT_SHEET_ID)
+                                   novoId360 sequencial, STATUS = "Aguardando ML"
                                               │
-                              MailApp.sendEmail(email_comprador, link + aviso)
+                                   nomePasta = novoId360 + " - " + nome + " - " + txId
+                                   DriveApp.getFolderById(PASTA_CLIENTES_ID)
+                                     .createFolder(nomePasta)
+                                              │
+                                   DriveApp.getFileById(MASTER_SHEET_ID)
+                                     .makeCopy(nomePasta, subpasta)
+                                              │
+                                   novaPlanilha.addEditor(email_comprador)
+                                   DriveApp.getFileById(copia.getId())
+                                     .setShareableByEditors(false)
+                                   novaPlanilha.addDeveloperMetadata("TRANSACAO_ID", txId)
+                                              │
+                                   MailApp.sendEmail(email_comprador, link + aviso)
+                                              │
+                                   props.setProperty("TX_"+txId, "true")  ← idempotência
 ```
 
 ### ScriptProperties do onboarding-api
@@ -275,6 +283,8 @@ Hotmart ──POST /webhook?hottok=TOKEN──► onboarding-api/webhook.js
 | `HOTMART_TOKEN` | Token configurado na URL do webhook no painel Hotmart (parâmetro `?hottok=`) |
 | `MASTER_SHEET_ID` | ID da planilha `frontend-seller` Master (template) |
 | `PASTA_CLIENTES_ID` | ID da pasta "01. Clientes Ativos" no Drive da 360 Gestão |
+| `CLIENT_SHEET_ID` | ID da planilha do Diretório Central (mesma usada pelo backend-cofre) |
+| `LOG_SHEET_ID` | ID da planilha de telemetria (aba LOGS, 6 colunas) |
 
 ### Como TRANSACAO_ID chega ao backend
 
@@ -284,15 +294,19 @@ Hotmart ──POST /webhook?hottok=TOKEN──► onboarding-api/webhook.js
 
 ### Validação de segurança
 
-- Requisições sem `hottok` correto retornam HTTP 200 com `{ error: "Unauthorized" }` — evita vazar que o endpoint existe.
-- Eventos com `event !== "PURCHASE_APPROVED"` são ignorados silenciosamente (retornam `ok: true, ignorado: evento`).
+- Requisições sem `hottok` correto retornam `HtmlService("OK")` silenciosamente — evita vazar que o endpoint existe.
+- Todos os eventos com hottok válido são enfileirados; a filtragem por tipo de evento não está implementada.
 - HTML nos e-mails é escapado via `_esc()` antes de interpolação.
+- Idempotência: `TX_{txId}` bloqueia re-processamento de transações já concluídas. `ERROR_QUEUE_{txId}` preserva payloads com falha para reprocessamento manual (renomear para `QUEUE_{txId}`).
 
 ---
 
 ## Comandos de Desenvolvimento
 
 ```bash
+# Push do microsserviço de onboarding
+cd onboarding-api && clasp push --force
+
 # Push do frontend (planilha do seller)
 cd frontend-seller && clasp push --force
 

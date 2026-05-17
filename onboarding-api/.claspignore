@@ -1,0 +1,5 @@
+.claspignore
+.clasp.json
+*.md
+*.log
+node_modules/
