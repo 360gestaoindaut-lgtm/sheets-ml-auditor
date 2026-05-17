@@ -99,7 +99,7 @@ function _registrarTenant(accessToken, transacaoId) {
       ? sheet.getRange(2, 2, lastRow - 1, 7).getValues()
       : [];
     // dados[i][0]=B SELLER_ID_360 | [1]=C SELLER_ID_ML | [2]=D SELLER_NICKNAME_ML
-    // [3]=E STATUS | [4]=F NOTAS  | [5]=G ORIGEM       | [6]=H TRANSACAO_ID
+    // [3]=E STATUS | [4]=F NOTAS  | [5]=G EMAIL_COMPRADOR | [6]=H TRANSACAO_ID
 
     // ── Prioridade 1: Handshake Hotmart ──────────────────────────────────────
     if (transacaoId) {
@@ -111,8 +111,7 @@ function _registrarTenant(accessToken, transacaoId) {
         var id360 = String(dados[idxTid][0]);
         var linha  = idxTid + 2; // +2: dados é 0-indexed a partir da linha 2
         sheet.getRange(linha, 3, 1, 2).setValues([[mlId, mlNick]]); // C:D
-        sheet.getRange(linha, 5, 1, 1).setValues([["Ativo"]]);      // E
-        sheet.getRange(linha, 9, 1, 1).setValues([[obterDataFormatada360()]]); // I
+        sheet.getRange(linha, 5, 1, 1).setValues([["Ativo"]]);      // E (col I = ORIGEM já está correta)
         return { vendedor_id_360: id360, vendedor_id_ml: mlId, vendedor_nome: mlNick };
       }
     }

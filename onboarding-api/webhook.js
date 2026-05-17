@@ -142,38 +142,71 @@ function _provisionarVenda(transacaoId, rawPayload, props) {
 
   try {
     // Extração completa dos dados do comprador
-    var payload        = JSON.parse(rawPayload);
-    var data_          = payload.data     || {};
-    var buyer          = data_.buyer      || {};
+    var payload         = JSON.parse(rawPayload);
+    var data_           = payload.data    || {};
+    var buyer           = data_.buyer     || {};
     var email_comprador = String(buyer.email || "").trim().toLowerCase();
     var nome_comprador  = String(buyer.name  || "Cliente").trim();
 
     if (!email_comprador) throw new Error("email do comprador ausente no payload enfileirado");
 
+    // ── 1. Registro no Banco Central ─────────────────────────────────────
+    var clientSheetId = props.getProperty("CLIENT_SHEET_ID");
+    if (!clientSheetId) throw new Error("CLIENT_SHEET_ID nao configurado");
+
+    var ss    = SpreadsheetApp.openById(clientSheetId);
+    var sheet = ss.getSheetByName("CLIENTES");
+    if (!sheet) sheet = ss.insertSheet("CLIENTES");
+
+    var lastRow = sheet.getLastRow();
+    var dadosB  = lastRow >= 2
+      ? sheet.getRange(2, 2, lastRow - 1, 1).getValues()  // só coluna B (SELLER_ID_360)
+      : [];
+    var maxSeq = 0;
+    dadosB.forEach(function(row) {
+      var n = parseInt(String(row[0]).replace(/\D/g, ""), 10);
+      if (!isNaN(n) && n > maxSeq) maxSeq = n;
+    });
+    var novoId360 = ("000000" + (maxSeq + 1)).slice(-6);
+    var dataAtual = obterDataFormatada360();
+
+    // Força formato texto na coluna B da nova linha (preserva zeros à esquerda)
+    sheet.getRange(lastRow + 1, 2, 1, 1).setNumberFormat("@");
+    // Layout 9 colunas:
+    // A=DATA | B=SELLER_ID_360 | C=SELLER_ID_ML | D=SELLER_NICKNAME_ML |
+    // E=STATUS | F=NOTAS | G=EMAIL_COMPRADOR | H=TRANSACAO_ID | I=ORIGEM
+    sheet.getRange(lastRow + 1, 1, 1, 9).setValues([[
+      dataAtual, novoId360, "", "", "Aguardando ML", "", email_comprador, transacaoId, "Hotmart"
+    ]]);
+    _log("CLIENTE_REGISTRADO", novoId360 + " — " + email_comprador);
+
+    // ── 2. Nomenclatura padronizada ───────────────────────────────────────
+    var nomePasta = novoId360 + " - " + nome_comprador + " - " + transacaoId;
+
     var masterId = props.getProperty("MASTER_SHEET_ID");
     var pastaId  = props.getProperty("PASTA_CLIENTES_ID");
     if (!masterId || !pastaId) throw new Error("MASTER_SHEET_ID ou PASTA_CLIENTES_ID nao configurados");
 
-    // 1. Subpasta do cliente
+    // ── 3. Subpasta do cliente ────────────────────────────────────────────
     var pastaClientes = DriveApp.getFolderById(pastaId);
-    var subpasta      = pastaClientes.createFolder(nome_comprador + " — " + transacaoId);
+    var subpasta      = pastaClientes.createFolder(nomePasta);
     _log("SUBPASTA_CRIADA", subpasta.getName() + " [" + subpasta.getId() + "]");
 
-    // 2. Cópia do Master
-    var copia = DriveApp.getFileById(masterId).makeCopy("Raio-X ML — " + nome_comprador, subpasta);
+    // ── 4. Cópia do Master ────────────────────────────────────────────────
+    var copia = DriveApp.getFileById(masterId).makeCopy(nomePasta, subpasta);
     _log("PLANILHA_COPIADA", copia.getId());
 
-    // 3. Compartilhamento restrito
+    // ── 5. Compartilhamento restrito ──────────────────────────────────────
     var novaPlanilha = SpreadsheetApp.openById(copia.getId());
     novaPlanilha.addEditor(email_comprador);
     DriveApp.getFileById(copia.getId()).setShareableByEditors(false);
     _log("SHARING_OK", email_comprador);
 
-    // 4. Handshake de identidade
+    // ── 6. Handshake de identidade ────────────────────────────────────────
     novaPlanilha.addDeveloperMetadata("TRANSACAO_ID", transacaoId);
     _log("METADATA_OK", transacaoId);
 
-    // 5. E-mail de boas-vindas
+    // ── 7. E-mail de boas-vindas ──────────────────────────────────────────
     var linkPlanilha = "https://docs.google.com/spreadsheets/d/" + copia.getId() + "/edit";
     MailApp.sendEmail({
       to:       email_comprador,

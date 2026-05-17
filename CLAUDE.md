@@ -184,19 +184,19 @@ ScriptProperty `CLIENT_SHEET_ID` aponta para a planilha do Diretório Central. A
 | B | SELLER_ID_360 | 6 dígitos com zeros à esquerda, ex: `"000042"` — formato texto obrigatório |
 | C | SELLER_ID_ML | ID numérico do seller no ML — formato texto obrigatório |
 | D | SELLER_NICKNAME_ML | Nickname no ML, atualizado a cada re-login |
-| E | STATUS | `"Ativo"` / `"Pendente"` |
+| E | STATUS | `"Aguardando ML"` (provisionado pela Hotmart) / `"Ativo"` (após OAuth) |
 | F | NOTAS | Uso livre |
-| G | ORIGEM | `"Hotmart"` ou `"Manual"` |
+| G | EMAIL_COMPRADOR | E-mail do comprador na Hotmart (pode diferir do e-mail Google/ML) |
 | H | TRANSACAO_ID | ID da transação Hotmart; vazio para tenants manuais |
-| I | DATA_ATIVACAO | Timestamp do primeiro OAuth concluído |
+| I | ORIGEM | `"Hotmart"` ou `"Manual"` |
 
 **Regras de tipagem:** `setNumberFormat("@")` aplicado nas colunas B e C antes de qualquer `setValues` que grave nelas. Nunca usar `appendRow` nesta aba.
 
 **Upsert — três prioridades de `_registrarTenant`:**
 
-1. **Handshake (col H):** Se `transacaoId` vier no payload, busca na col H. Se encontrar: UPDATE cols C, D, E, I — sem criar nova linha.
+1. **Handshake (col H):** Se `transacaoId` vier no payload, busca na col H. Se encontrar: UPDATE cols C (SELLER_ID_ML), D (SELLER_NICKNAME_ML), E (STATUS → "Ativo") — sem criar nova linha. A linha já existe com status "Aguardando ML" desde o provisionamento Hotmart.
 2. **Re-login (col C):** Busca `SELLER_ID_ML` na col C. Se encontrar: atualiza nickname se mudou.
-3. **Novo manual:** Gera próximo `SELLER_ID_360` sequencial e insere linha completa de 9 colunas.
+3. **Novo manual:** Gera próximo `SELLER_ID_360` sequencial e insere linha completa de 9 colunas com ORIGEM = "Manual".
 
 **Lifecycle do token:**
 - `invalid_grant` → `renovarToken()` apaga todas as `UserProperties` e alerta o seller para reconectar.
