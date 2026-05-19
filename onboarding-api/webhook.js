@@ -176,43 +176,20 @@ function _provisionarVenda(transacaoId, rawPayload, props) {
     // A=DATA | B=SELLER_ID_360 | C=SELLER_ID_ML | D=SELLER_NICKNAME_ML |
     // E=STATUS | F=NOTAS | G=EMAIL_COMPRADOR | H=TRANSACAO_ID | I=ORIGEM
     sheet.getRange(lastRow + 1, 1, 1, 9).setValues([[
-      dataAtual, novoId360, "", "", "Aguardando ML", "", email_comprador, transacaoId, "Hotmart"
+      dataAtual, novoId360, "", "", "Ativo", "", email_comprador, transacaoId, "Hotmart"
     ]]);
     _log("CLIENTE_REGISTRADO", novoId360 + " — " + email_comprador);
 
-    // ── 2. Nomenclatura padronizada ───────────────────────────────────────
-    var nomePasta = novoId360 + " - " + nome_comprador + " - " + transacaoId;
+    // ── 2. E-mail de boas-vindas com credenciais de ativação ─────────────
+    var masterId  = props.getProperty("MASTER_SHEET_ID");
+    if (!masterId) throw new Error("MASTER_SHEET_ID nao configurado");
+    var linkCopia = "https://docs.google.com/spreadsheets/d/" + masterId + "/copy";
 
-    var masterId = props.getProperty("MASTER_SHEET_ID");
-    var pastaId  = props.getProperty("PASTA_CLIENTES_ID");
-    if (!masterId || !pastaId) throw new Error("MASTER_SHEET_ID ou PASTA_CLIENTES_ID nao configurados");
-
-    // ── 3. Subpasta do cliente ────────────────────────────────────────────
-    var pastaClientes = DriveApp.getFolderById(pastaId);
-    var subpasta      = pastaClientes.createFolder(nomePasta);
-    _log("SUBPASTA_CRIADA", subpasta.getName() + " [" + subpasta.getId() + "]");
-
-    // ── 4. Cópia do Master ────────────────────────────────────────────────
-    var copia = DriveApp.getFileById(masterId).makeCopy(nomePasta, subpasta);
-    _log("PLANILHA_COPIADA", copia.getId());
-
-    // ── 5. Compartilhamento restrito ──────────────────────────────────────
-    var novaPlanilha = SpreadsheetApp.openById(copia.getId());
-    novaPlanilha.addEditor(email_comprador);
-    DriveApp.getFileById(copia.getId()).setShareableByEditors(false);
-    _log("SHARING_OK", email_comprador);
-
-    // ── 6. Handshake de identidade ────────────────────────────────────────
-    novaPlanilha.addDeveloperMetadata("TRANSACAO_ID", transacaoId);
-    _log("METADATA_OK", transacaoId);
-
-    // ── 7. E-mail de boas-vindas ──────────────────────────────────────────
-    var linkPlanilha = "https://docs.google.com/spreadsheets/d/" + copia.getId() + "/edit";
     MailApp.sendEmail({
       to:       email_comprador,
       subject:  "✅ Seu acesso ao Raio-X ML está pronto!",
-      body:     _emailTexto(nome_comprador, linkPlanilha, email_comprador),
-      htmlBody: _emailHtml(nome_comprador, linkPlanilha, email_comprador)
+      body:     _emailTexto(nome_comprador, linkCopia, email_comprador, transacaoId),
+      htmlBody: _emailHtml(nome_comprador, linkCopia, email_comprador, transacaoId)
     });
     _log("EMAIL_ENVIADO", email_comprador);
 
@@ -257,17 +234,22 @@ function _esc(str) {
     .replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 }
 
-function _emailTexto(nome, link, email) {
+function _emailTexto(nome, linkCopia, email, chave) {
   return [
     "Olá, " + nome + "!",
     "",
-    "Sua planilha Raio-X ML está pronta:",
-    link,
+    "Sua compra foi confirmada. Siga os passos abaixo para acessar a ferramenta:",
     "",
-    "⚠️  ACESSO RESTRITO AO E-MAIL DA COMPRA",
-    "Esta planilha foi compartilhada exclusivamente com: " + email,
-    "Certifique-se de estar logado com essa conta Google ao abrir o link.",
-    "Se abrir com outra conta receberá erro de permissão.",
+    "PASSO 1 — Faça uma cópia gratuita da planilha:",
+    linkCopia,
+    "",
+    "PASSO 2 — Na planilha copiada, acesse o menu '360 Gestão - ML' e clique em",
+    "'🔑 Ativar Licença'. Informe as credenciais abaixo:",
+    "",
+    "  E-mail de Compra : " + email,
+    "  Chave de Licença : " + chave,
+    "",
+    "Guarde esta chave em local seguro — ela é intransferível.",
     "",
     "Dúvidas? Responda este e-mail.",
     "",
@@ -275,24 +257,38 @@ function _emailTexto(nome, link, email) {
   ].join("\n");
 }
 
-function _emailHtml(nome, link, email) {
-  var nomeEsc  = _esc(nome);
-  var emailEsc = _esc(email);
-  var linkEsc  = _esc(link);
+function _emailHtml(nome, linkCopia, email, chave) {
+  var nomeEsc   = _esc(nome);
+  var emailEsc  = _esc(email);
+  var chaveEsc  = _esc(chave);
+  var linkEsc   = _esc(linkCopia);
   return '<div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;color:#333;">'
-    + '<h2 style="color:#2e7d32;">✅ Seu acesso ao Raio-X ML está pronto!</h2>'
-    + '<p>Olá, <strong>' + nomeEsc + '</strong>!</p>'
-    + '<p>Sua planilha de auditoria de catálogo está disponível:</p>'
-    + '<p style="text-align:center;margin:28px 0;">'
+    + '<h2 style="color:#2e7d32;">✅ Sua compra foi confirmada!</h2>'
+    + '<p>Olá, <strong>' + nomeEsc + '</strong>! Siga os dois passos abaixo para começar.</p>'
+
+    + '<div style="margin:24px 0;">'
+    + '<p style="font-size:15px;font-weight:700;margin-bottom:8px;">Passo 1 — Faça sua cópia da planilha</p>'
+    + '<p style="margin-bottom:16px;color:#555;">Clique no botão abaixo para criar sua cópia gratuita da ferramenta no Google Drive:</p>'
+    + '<p style="text-align:center;">'
     + '<a href="' + linkEsc + '" style="background:#3483fa;color:#fff;padding:14px 32px;'
     + 'text-decoration:none;border-radius:6px;font-weight:bold;display:inline-block;">'
-    + 'Abrir Minha Planilha</a></p>'
-    + '<div style="background:#fff8e1;border-left:4px solid #f9a825;padding:14px 18px;margin:24px 0;">'
-    + '<strong>⚠️ Acesso Restrito ao E-mail da Compra</strong><br><br>'
-    + 'Esta planilha foi compartilhada exclusivamente com <strong>' + emailEsc + '</strong>.<br>'
-    + 'Para acessá-la, certifique-se de estar logado com essa conta no Google.<br>'
-    + 'Se você abrir com outra conta Google, receberá um erro de permissão.'
+    + 'Fazer Minha Cópia</a></p>'
     + '</div>'
-    + '<p style="color:#888;font-size:13px;">Dúvidas? Responda este e-mail.<br><br>Equipe 360 Gestão</p>'
+
+    + '<div style="margin:24px 0;">'
+    + '<p style="font-size:15px;font-weight:700;margin-bottom:8px;">Passo 2 — Ative sua licença</p>'
+    + '<p style="color:#555;margin-bottom:12px;">Na planilha copiada, acesse o menu '
+    + '<strong>360 Gestão - ML → 🔑 Ativar Licença</strong> e insira as credenciais abaixo:</p>'
+    + '<div style="background:#f5f5f5;border-radius:8px;padding:16px 20px;font-family:monospace;font-size:14px;line-height:2;">'
+    + '<div><span style="color:#888;font-size:12px;">E-MAIL DE COMPRA</span><br>'
+    + '<strong>' + emailEsc + '</strong></div>'
+    + '<div style="margin-top:10px;"><span style="color:#888;font-size:12px;">CHAVE DE LICENÇA</span><br>'
+    + '<strong>' + chaveEsc + '</strong></div>'
+    + '</div>'
+    + '</div>'
+
+    + '<p style="color:#888;font-size:12px;border-top:1px solid #eee;padding-top:16px;margin-top:8px;">'
+    + 'Guarde esta chave em local seguro — ela é intransferível.<br>'
+    + 'Dúvidas? Responda este e-mail.<br><br>Equipe 360 Gestão</p>'
     + '</div>';
 }
