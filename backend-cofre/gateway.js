@@ -155,19 +155,88 @@ function _registrarTenant(accessToken, transacaoId) {
 }
 
 /**
+ * Valida licença e aplica vínculo de instância (hardware binding).
+ * Localiza a linha pelo par (email, chave=transacaoId) na aba CLIENTES.
+ * Busca a coluna PLANILHA_ID dinamicamente na linha 1 para resiliência a
+ * mudanças de índice.
+ *
+ * Condição 1 — Primeiro acesso: célula PLANILHA_ID vazia → grava planilhaId e retorna true.
+ * Condição 2 — Acessos subsequentes: compara PLANILHA_ID salvo; true se igual, false se divergir.
+ * Se a coluna PLANILHA_ID ainda não existir no cabeçalho, permite o acesso sem binding.
+ */
+function _validarLicenca(email, chave, planilhaId) {
+  if (!email || !chave || !planilhaId) return false;
+
+  var props   = PropertiesService.getScriptProperties();
+  var sheetId = props.getProperty("CLIENT_SHEET_ID");
+  if (!sheetId) return false;
+
+  try {
+    var ss    = SpreadsheetApp.openById(sheetId);
+    var sheet = ss.getSheetByName("CLIENTES");
+    if (!sheet) return false;
+
+    var lastRow  = sheet.getLastRow();
+    var lastCol  = sheet.getLastColumn();
+    if (lastRow < 2 || lastCol < 1) return false;
+
+    // Localiza coluna PLANILHA_ID dinamicamente na linha 1
+    var headers       = sheet.getRange(1, 1, 1, lastCol).getValues()[0];
+    var colPlanilhaId = -1;
+    for (var c = 0; c < headers.length; c++) {
+      if (String(headers[c]).trim() === "PLANILHA_ID") { colPlanilhaId = c + 1; break; }
+    }
+
+    // Lê todas as colunas das linhas de dados (cobrindo colPlanilhaId se existir)
+    var numCols = colPlanilhaId > lastCol ? colPlanilhaId : lastCol;
+    var dados   = sheet.getRange(2, 1, lastRow - 1, numCols).getValues();
+
+    // Localiza linha pelo par email (col G = índice 6) + chave (col H = índice 7)
+    var idxRow = -1;
+    for (var i = 0; i < dados.length; i++) {
+      var rowEmail = String(dados[i][6] || "").trim().toLowerCase();
+      var rowChave = String(dados[i][7] || "").trim();
+      if (rowEmail === email.toLowerCase() && rowChave === chave) { idxRow = i; break; }
+    }
+    if (idxRow < 0) return false; // licença não encontrada
+
+    // Sem coluna PLANILHA_ID: não é possível aplicar binding, permite acesso
+    if (colPlanilhaId < 0) return true;
+
+    var savedId = String(dados[idxRow][colPlanilhaId - 1] || "").trim();
+
+    if (!savedId) {
+      // Primeiro acesso: vincula a planilha
+      sheet.getRange(idxRow + 2, colPlanilhaId).setValue(planilhaId);
+      return true;
+    }
+
+    // Acessos subsequentes: verifica vínculo
+    return savedId === planilhaId;
+
+  } catch(err) {
+    console.error("_validarLicenca: " + err.message);
+    return false;
+  }
+}
+
+/**
  * ESSENCIAL: Responde à planilha quando ela pede o token salvo.
- * Todas as rotas exigem apiKey válida — rejeita requisições de origem desconhecida.
+ * Rotas OAuth (registerCsrfState, fetchToken) são isentas de validação de licença.
+ * Todas as demais rotas exigem email + chave + planilhaId válidos.
  */
 function doPost(e) {
   var props = PropertiesService.getScriptProperties();
   var data  = JSON.parse(e.postData.contents);
 
-  // ── Validação de origem via API Key interna (Fase 1 — Vuln. A) ───────────
-  var INTERNAL_KEY = props.getProperty('INTERNAL_API_KEY');
-  if (!INTERNAL_KEY || data.apiKey !== INTERNAL_KEY) {
-    return ContentService
-      .createTextOutput(JSON.stringify({ error: "Unauthorized" }))
-      .setMimeType(ContentService.MimeType.JSON);
+  // ── Middleware: validação de licença e vínculo de instância ──────────────
+  var ROTAS_SISTEMA = ["registerCsrfState", "fetchToken"];
+  if (ROTAS_SISTEMA.indexOf(data.action) === -1) {
+    if (!_validarLicenca(data.email || "", data.chave || "", data.planilhaId || "")) {
+      return ContentService
+        .createTextOutput(JSON.stringify({ error: "Unauthorized" }))
+        .setMimeType(ContentService.MimeType.JSON);
+    }
   }
 
   // ── Registro de CSRF state: uuid → spreadsheetId (Fase 1 — Vuln. D) ─────

@@ -185,6 +185,7 @@ function rodarRaioX() {
     PROGRESS_MSG:   "Iniciando auditoria de " + totalPendente + " anúncios..."
   }, 21600);
 
+  var planilhaId   = ss.getId();
   var scriptProps  = PropertiesService.getScriptProperties();
   var vendedorId   = scriptProps.getProperty("CLIENT_ID")    || "";
   var vendedorIdMl = scriptProps.getProperty("CLIENT_ID_ML") || "";
@@ -233,6 +234,7 @@ function rodarRaioX() {
           action:         "processarRaioX",
           email:          licenca.email,
           chave:          licenca.chave,
+          planilhaId:     planilhaId,
           access_token:   token,
           refresh_token:  refresh,
           user_id:        userId,
@@ -404,7 +406,8 @@ function renovarToken() {
         action:        "refreshToken",
         refresh_token: refreshToken,
         email:         lic ? lic.email : "",
-        chave:         lic ? lic.chave : ""
+        chave:         lic ? lic.chave : "",
+        planilhaId:    SpreadsheetApp.getActiveSpreadsheet().getId()
       }),
       muteHttpExceptions: true
     });
