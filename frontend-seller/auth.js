@@ -1,4 +1,4 @@
-// CONFIGURAÇÕES DA 360 GESTÃO — NÃO EXPÕE O CLIENT_SECRET
+// CONFIGURAÇÕES DA 360 GESTÃO
 var CLIENT_ID   = "334744915172650";
 var WEB_APP_URL = "https://script.google.com/macros/s/AKfycbyGFGO3cEpyc98h3lKLKDr5lpZi6MLr_HeS8t6ZPcyZnAhF6JbbhfGyg9mWxO79C4AH/exec";
 
@@ -36,6 +36,11 @@ function registrarCsrfState(uuid, ssId) {
 }
 
 function abrirLoginML() {
+  if (!_licencaAtiva()) {
+    SpreadsheetApp.getUi().alert("⚠️ Acesso Bloqueado\n\nPor favor, ative sua licença primeiro para utilizar a ferramenta.");
+    abrirSidebarAtivacao();
+    return;
+  }
   var ssId = SpreadsheetApp.getActiveSpreadsheet().getId();
   var uuid = Utilities.getUuid(); // opaco — não revela ssId na URL do ML
   registrarCsrfState(uuid, ssId);
@@ -136,6 +141,11 @@ function salvarTokens(data) {
 // =============================================================================
 // GESTÃO DE LICENÇA — DocumentProperties (por documento, não por usuário)
 // =============================================================================
+
+function _licencaAtiva() {
+  var lic = obterLicenca();
+  return !!(lic && lic.email && lic.chave);
+}
 
 function salvarLicenca(email, chave) {
   PropertiesService.getDocumentProperties().setProperties({

@@ -29,6 +29,8 @@ var CONFIG = {
 function onOpen() {
   SpreadsheetApp.getUi()
     .createMenu("360 Gestão - ML")
+    .addItem("🔑 Ativar Licença",              "abrirSidebarAtivacao")
+    .addSeparator()
     .addItem("1. Conectar Conta Mercado Livre", "abrirLoginML")
     .addItem("2. Sincronizar Catálogo",          "sincronizarAnuncios")
     .addItem("3. Rodar Raio-X (Auditoria)",      "abrirSidebarRaioX")
@@ -40,7 +42,18 @@ function onOpen() {
 // =============================================================================
 // PAINEL DE CONTROLE — Sidebar
 // =============================================================================
+function abrirSidebarAtivacao() {
+  var html = HtmlService.createHtmlOutputFromFile("sidebar")
+    .setTitle("Painel de Controle - 360 Gestão");
+  SpreadsheetApp.getUi().showSidebar(html);
+}
+
 function abrirSidebarRaioX() {
+  if (!_licencaAtiva()) {
+    SpreadsheetApp.getUi().alert("⚠️ Acesso Bloqueado\n\nPor favor, ative sua licença primeiro para utilizar a ferramenta.");
+    abrirSidebarAtivacao();
+    return;
+  }
   var html = HtmlService.createHtmlOutputFromFile("sidebar")
     .setTitle("Painel de Controle - 360 Gestão");
   SpreadsheetApp.getUi().showSidebar(html);
@@ -60,6 +73,11 @@ function obterStatusRaioX() {
 // 1. SINCRONIZAÇÃO — Modo Scan
 // =============================================================================
 function sincronizarAnuncios() {
+  if (!_licencaAtiva()) {
+    SpreadsheetApp.getUi().alert("⚠️ Acesso Bloqueado\n\nPor favor, ative sua licença primeiro para utilizar a ferramenta.");
+    abrirSidebarAtivacao();
+    return;
+  }
   var props  = PropertiesService.getUserProperties();
   var token  = props.getProperty("access_token");
   var userId = props.getProperty("user_id");
