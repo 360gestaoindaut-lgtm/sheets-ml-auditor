@@ -53,6 +53,61 @@
       margin-bottom: 10px;
     }
 
+    /* ─── Formulário de ativação ─────────────────────────── */
+    .field {
+      margin-bottom: 10px;
+    }
+    .field label {
+      display: block;
+      font-size: 11px;
+      font-weight: 600;
+      color: #555;
+      margin-bottom: 4px;
+    }
+    .field input {
+      width: 100%;
+      padding: 8px 10px;
+      border: 1px solid #d0d7e3;
+      border-radius: 6px;
+      font-size: 13px;
+      color: #1a1a2e;
+      background: #f9fbff;
+      outline: none;
+      transition: border-color 0.2s;
+    }
+    .field input:focus {
+      border-color: #3483fa;
+      background: #fff;
+    }
+    .btn-ativar {
+      width: 100%;
+      padding: 10px;
+      background: linear-gradient(90deg, #1565c0, #3483fa);
+      color: #fff;
+      font-size: 13px;
+      font-weight: 700;
+      border: none;
+      border-radius: 6px;
+      cursor: pointer;
+      margin-top: 4px;
+      transition: opacity 0.2s;
+    }
+    .btn-ativar:hover   { opacity: 0.88; }
+    .btn-ativar:active  { opacity: 0.75; }
+    .btn-ativar:disabled { opacity: 0.5; cursor: not-allowed; }
+    .ativ-info {
+      font-size: 12px;
+      color: #777;
+      margin-bottom: 12px;
+      line-height: 1.5;
+    }
+    .msg-erro {
+      color: #c62828;
+      font-size: 12px;
+      margin-top: 8px;
+      min-height: 16px;
+    }
+
     /* ─── Barra de progresso ─────────────────────────────── */
     .bar-track {
       background: #e8ecf3;
@@ -125,36 +180,59 @@
 
   <div class="hd">
     <span class="hd-badge">360</span>
-    <span class="hd-title">Raio-X em Andamento</span>
+    <span class="hd-title" id="hdTitle">Carregando...</span>
   </div>
 
-  <!-- Progresso -->
-  <div class="card">
-    <div class="card-label">Progresso da Auditoria</div>
-    <div class="bar-track">
-      <div class="bar-fill" id="barFill"></div>
-    </div>
-    <div class="bar-meta">
-      <span id="countLbl">0 de 0 anúncios</span>
-      <span class="bar-pct" id="pctLbl">0%</span>
-    </div>
-    <div class="status" id="statusLbl">Aguardando início da auditoria...</div>
-  </div>
-
-  <!-- Aviso de aba aberta -->
-  <div class="card">
-    <div class="warn">
-      ⚠️ <strong>Não feche esta aba.</strong>
-      Se fechar, o script continua em segundo plano. Reabra o painel pelo menu a qualquer momento para retomar o acompanhamento.
+  <!-- ═══ SEÇÃO: Formulário de Ativação ══════════════════════════════════ -->
+  <div id="sectionAtivacao" style="display:none;">
+    <div class="card">
+      <div class="card-label">Ativação de Licença</div>
+      <p class="ativ-info">Insira os dados da sua compra para ativar esta planilha.</p>
+      <div class="field">
+        <label for="inpEmail">E-mail de Compra</label>
+        <input type="email" id="inpEmail" placeholder="seu@email.com" autocomplete="email">
+      </div>
+      <div class="field">
+        <label for="inpChave">Chave de Licença</label>
+        <input type="text" id="inpChave" placeholder="XXXX-XXXX-XXXX-XXXX" autocomplete="off">
+      </div>
+      <button class="btn-ativar" id="btnAtivar">Ativar Planilha</button>
+      <div class="msg-erro" id="msgErro"></div>
     </div>
   </div>
 
-  <!-- Dicas rotativas de SEO -->
-  <div class="card">
-    <div class="tip">
-      <div class="tip-head">💡 Dica de SEO &amp; Performance</div>
-      <div class="tip-body" id="tipLbl">Carregando...</div>
+  <!-- ═══ SEÇÃO: Auditoria em Andamento ══════════════════════════════════ -->
+  <div id="sectionAuditoria" style="display:none;">
+
+    <!-- Progresso -->
+    <div class="card">
+      <div class="card-label">Progresso da Auditoria</div>
+      <div class="bar-track">
+        <div class="bar-fill" id="barFill"></div>
+      </div>
+      <div class="bar-meta">
+        <span id="countLbl">0 de 0 anúncios</span>
+        <span class="bar-pct" id="pctLbl">0%</span>
+      </div>
+      <div class="status" id="statusLbl">Aguardando início da auditoria...</div>
     </div>
+
+    <!-- Aviso de aba aberta -->
+    <div class="card">
+      <div class="warn">
+        ⚠️ <strong>Não feche esta aba.</strong>
+        Se fechar, o script continua em segundo plano. Reabra o painel pelo menu a qualquer momento para retomar o acompanhamento.
+      </div>
+    </div>
+
+    <!-- Dicas rotativas de SEO -->
+    <div class="card">
+      <div class="tip">
+        <div class="tip-head">💡 Dica de SEO &amp; Performance</div>
+        <div class="tip-body" id="tipLbl">Carregando...</div>
+      </div>
+    </div>
+
   </div>
 
   <script>
@@ -172,6 +250,69 @@
     var _tipIdx = Math.floor(Math.random() * TIPS.length);
     var _timer  = null;
     var _done   = false;
+
+    // ── Inicialização: verifica licença antes de mostrar qualquer seção ───
+    document.addEventListener("DOMContentLoaded", function() {
+      google.script.run
+        .withSuccessHandler(verificarLicenca)
+        .withFailureHandler(function() { verificarLicenca(null); })
+        .obterLicenca();
+    });
+
+    function verificarLicenca(licenca) {
+      if (!licenca || !licenca.email || !licenca.chave) {
+        document.getElementById("hdTitle").textContent = "Ativação Necessária";
+        document.getElementById("sectionAtivacao").style.display = "block";
+        document.getElementById("sectionAuditoria").style.display = "none";
+      } else {
+        document.getElementById("hdTitle").textContent = "Raio-X em Andamento";
+        document.getElementById("sectionAtivacao").style.display = "none";
+        document.getElementById("sectionAuditoria").style.display = "block";
+        iniciarAuditoria();
+      }
+    }
+
+    // ── Formulário de ativação ────────────────────────────────────────────
+    document.getElementById("btnAtivar").addEventListener("click", function() {
+      var email = document.getElementById("inpEmail").value.trim();
+      var chave = document.getElementById("inpChave").value.trim();
+      var erro  = document.getElementById("msgErro");
+
+      if (!email || !chave) {
+        erro.textContent = "Preencha o e-mail e a chave de licença.";
+        return;
+      }
+      if (email.indexOf("@") < 0) {
+        erro.textContent = "Informe um e-mail válido.";
+        return;
+      }
+
+      erro.textContent = "";
+      document.getElementById("btnAtivar").disabled = true;
+      document.getElementById("btnAtivar").textContent = "Ativando...";
+
+      google.script.run
+        .withSuccessHandler(function() {
+          document.getElementById("hdTitle").textContent = "Raio-X em Andamento";
+          document.getElementById("sectionAtivacao").style.display = "none";
+          document.getElementById("sectionAuditoria").style.display = "block";
+          iniciarAuditoria();
+        })
+        .withFailureHandler(function(err) {
+          document.getElementById("btnAtivar").disabled = false;
+          document.getElementById("btnAtivar").textContent = "Ativar Planilha";
+          document.getElementById("msgErro").textContent = "Erro ao salvar: " + err.message;
+        })
+        .salvarLicenca(email, chave);
+    });
+
+    // ── UI de auditoria ───────────────────────────────────────────────────
+    function iniciarAuditoria() {
+      showTip(false);
+      poll();
+      _timer = setInterval(poll, 4000);
+      setInterval(function() { showTip(true); }, 14000);
+    }
 
     function showTip(animate) {
       var el = document.getElementById("tipLbl");
@@ -222,11 +363,6 @@
         })
         .obterStatusRaioX();
     }
-
-    showTip(false);
-    poll();
-    _timer = setInterval(poll, 4000);
-    setInterval(function() { showTip(true); }, 14000);
   </script>
 </body>
 </html>

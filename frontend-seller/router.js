@@ -11,6 +11,8 @@
 // =============================================================================
 // CONFIGURAÇÕES GLOBAIS
 // =============================================================================
+var COFRE_URL = "https://script.google.com/macros/s/AKfycbzsq5T3x40SSgcKmhxJhEAZQNlphVd4xhKPJaZQFyV-WDdVIVvOw94p-erYoD3nX2my/exec";
+
 var CONFIG = {
   SHEET_NAME:    "DESEMPENHO",
   TIMEOUT_TOTAL: 270000,   // 4.5 min — margem para lotes de até 60s antes do teto GAS de 6 min
@@ -110,6 +112,9 @@ function sincronizarAnuncios() {
 // 2. RAIO-X — Terminal Burro (roteador de lotes para o servidor 360)
 // =============================================================================
 function rodarRaioX() {
+  var licenca = obterLicenca();
+  if (!licenca) return; // Sidebar exibe formulário de ativação — sem alert redundante
+
   var startTotal = Date.now();
 
   var ss      = SpreadsheetApp.getActiveSpreadsheet();
@@ -203,15 +208,16 @@ function rodarRaioX() {
     var resposta   = null;
     var httpStatus = 0;
     try {
-      var httpResp = UrlFetchApp.fetch(WEB_APP_URL, {
+      var httpResp = UrlFetchApp.fetch(COFRE_URL, {
         method:             "post",
         contentType:        "application/json",
         payload:            JSON.stringify({
-          action:        "processarRaioX",
-          apiKey:        INTERNAL_API_KEY,
-          access_token:  token,
-          refresh_token: refresh,
-          user_id:       userId,
+          action:         "processarRaioX",
+          email:          licenca.email,
+          chave:          licenca.chave,
+          access_token:   token,
+          refresh_token:  refresh,
+          user_id:        userId,
           ids:            lote.map(function(item) { return item.id; }),
           vendedor_id:    vendedorId,
           vendedor_id_ml: vendedorIdMl,
@@ -245,7 +251,7 @@ function rodarRaioX() {
 
     if (resposta.error) {
       if (resposta.error === "Unauthorized") {
-        SpreadsheetApp.getUi().alert("❌ Chave de API inválida. Contate o suporte 360 Gestão.");
+        SpreadsheetApp.getUi().alert("❌ Licença inválida ou expirada. Verifique o e-mail e a chave no painel de ativação.");
         return;
       }
       ss.toast("⚠️ Lote " + loteNum + " — erro do servidor: " + resposta.error + ". Marcando como erro.", "360 Gestão", 10);
@@ -372,10 +378,16 @@ function renovarToken() {
   }
 
   try {
-    var response = UrlFetchApp.fetch(WEB_APP_URL, {
+    var lic      = obterLicenca();
+    var response = UrlFetchApp.fetch(COFRE_URL, {
       method:             "post",
       contentType:        "application/json",
-      payload:            JSON.stringify({ action: "refreshToken", refresh_token: refreshToken, apiKey: INTERNAL_API_KEY }),
+      payload:            JSON.stringify({
+        action:        "refreshToken",
+        refresh_token: refreshToken,
+        email:         lic ? lic.email : "",
+        chave:         lic ? lic.chave : ""
+      }),
       muteHttpExceptions: true
     });
 

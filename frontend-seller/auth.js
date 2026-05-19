@@ -1,7 +1,6 @@
 // CONFIGURAÇÕES DA 360 GESTÃO — NÃO EXPÕE O CLIENT_SECRET
-var CLIENT_ID        = "334744915172650";
-var WEB_APP_URL      = "https://script.google.com/macros/s/AKfycbyGFGO3cEpyc98h3lKLKDr5lpZi6MLr_HeS8t6ZPcyZnAhF6JbbhfGyg9mWxO79C4AH/exec";
-var INTERNAL_API_KEY = "360_KEY_XAMdyAZnZk1BHZ57EswLstUryZpV22PW"; // mesmo valor de ScriptProperties['INTERNAL_API_KEY'] no backend
+var CLIENT_ID   = "334744915172650";
+var WEB_APP_URL = "https://script.google.com/macros/s/AKfycbyGFGO3cEpyc98h3lKLKDr5lpZi6MLr_HeS8t6ZPcyZnAhF6JbbhfGyg9mWxO79C4AH/exec";
 
 // ← onOpen REMOVIDO daqui (está agora em motor360.js)
 
@@ -30,8 +29,7 @@ function registrarCsrfState(uuid, ssId) {
       action:        "registerCsrfState",
       uuid:          uuid,
       spreadsheetId: ssId,
-      apiKey:        INTERNAL_API_KEY,
-      transacao_id:  transacaoId   // "" para tenants manuais — backend ignora valor vazio
+      transacao_id:  transacaoId
     }),
     muteHttpExceptions: true
   });
@@ -108,8 +106,7 @@ function tentarCapturarToken() {
   var ssId    = SpreadsheetApp.getActiveSpreadsheet().getId();
   var payload = JSON.stringify({
     action:        "fetchToken",
-    spreadsheetId: ssId,
-    apiKey:        INTERNAL_API_KEY
+    spreadsheetId: ssId
   });
   try {
     var response = UrlFetchApp.fetch(WEB_APP_URL, {
@@ -134,4 +131,23 @@ function salvarTokens(data) {
     CLIENT_ID_ML:  data.vendedor_id_ml  || "",
     CLIENT_NAME:   data.vendedor_nome   || ""
   });
+}
+
+// =============================================================================
+// GESTÃO DE LICENÇA — DocumentProperties (por documento, não por usuário)
+// =============================================================================
+
+function salvarLicenca(email, chave) {
+  PropertiesService.getDocumentProperties().setProperties({
+    licenca_email: email.trim().toLowerCase(),
+    licenca_chave: chave.trim()
+  });
+}
+
+function obterLicenca() {
+  var p     = PropertiesService.getDocumentProperties();
+  var email = p.getProperty("licenca_email");
+  var chave = p.getProperty("licenca_chave");
+  if (!email || !chave) return null;
+  return { email: email, chave: chave };
 }
