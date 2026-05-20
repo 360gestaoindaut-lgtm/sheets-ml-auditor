@@ -174,10 +174,14 @@ function _logValidacao(motivo, detalhe) {
   var logId = PropertiesService.getScriptProperties().getProperty("LOG_SHEET_ID");
   if (!logId) return;
   try {
-    var ss    = SpreadsheetApp.openById(logId);
-    var sheet = ss.getSheetByName("LOGS") || ss.insertSheet("LOGS");
-    var ts    = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), "yyyy-MM-dd HH:mm:ss");
-    sheet.appendRow([ts, "DEBUG", "GATEWAY", "_validarLicenca", motivo, String(detalhe).slice(0, 1000)]);
+    var ss      = SpreadsheetApp.openById(logId);
+    var sheet   = ss.getSheetByName("LOGS") || ss.insertSheet("LOGS");
+    var ts      = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), "yyyy-MM-dd HH:mm:ss");
+    var nextRow = sheet.getLastRow() + 1;
+    sheet.getRange(nextRow, 1, 1, 6).setValues([[
+      ts, "S/ ID", "S/ ML", "S/ NOME", "GATEWAY",
+      (motivo + ": " + String(detalhe)).slice(0, 1000)
+    ]]);
   } catch(e) {}
 }
 
@@ -279,12 +283,19 @@ function doPost(e) {
   var props = PropertiesService.getScriptProperties();
   var data  = JSON.parse(e.postData.contents);
 
-  // Telemetria de debug: log do payload bruto recebido
+  // Telemetria: log do payload com titularidade real do tenant
+  var logId360 = data.vendedor_id  || data.email || "S/ ID";
+  var logIdMl  = data.vendedor_id_ml              || "S/ ML";
+  var logNome  = data.vendedor_nome                || "S/ NOME";
   try {
     var ssLog    = SpreadsheetApp.openById(props.getProperty("LOG_SHEET_ID"));
     var sheetLog = ssLog.getSheetByName("LOGS") || ssLog.insertSheet("LOGS");
     var tsLog    = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), "yyyy-MM-dd HH:mm:ss");
-    sheetLog.appendRow([tsLog, "DEBUG", "GATEWAY", "doPost", "PAYLOAD_RECEBIDO_BRUTO", e.postData.contents]);
+    var nextLog  = sheetLog.getLastRow() + 1;
+    sheetLog.getRange(nextLog, 1, 1, 6).setValues([[
+      tsLog, logId360, logIdMl, logNome, "GATEWAY",
+      ("PAYLOAD_BRUTO: " + e.postData.contents).slice(0, 49000)
+    ]]);
   } catch(err) {}
 
   // ── Middleware: validação de licença e vínculo de instância ──────────────

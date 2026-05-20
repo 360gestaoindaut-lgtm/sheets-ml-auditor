@@ -246,9 +246,7 @@ function rodarRaioX() {
       };
       try {
         var debugSheet = ss.getSheetByName("DEBUG_360");
-        if (!debugSheet) debugSheet = ss.insertSheet("DEBUG_360");
-        debugSheet.getRange("A1").setValue("ÚLTIMO PAYLOAD ENVIADO PARA O BACKEND:");
-        debugSheet.getRange("A2").setValue(JSON.stringify(payloadObj));
+        if (debugSheet) ss.deleteSheet(debugSheet);
       } catch(e) {}
       var httpResp = UrlFetchApp.fetch(COFRE_URL, {
         method:             "post",
