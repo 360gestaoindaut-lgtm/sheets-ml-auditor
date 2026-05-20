@@ -1,6 +1,6 @@
 // CONFIGURAÇÕES DA 360 GESTÃO
 var CLIENT_ID   = "334744915172650";
-var WEB_APP_URL = "https://script.google.com/macros/s/AKfycbyGFGO3cEpyc98h3lKLKDr5lpZi6MLr_HeS8t6ZPcyZnAhF6JbbhfGyg9mWxO79C4AH/exec";
+var WEB_APP_URL = "https://script.google.com/macros/s/AKfycbzsq5T3x40SSgcKmhxJhEAZQNlphVd4xhKPJaZQFyV-WDdVIVvOw94p-erYoD3nX2my/exec";
 
 // ← onOpen REMOVIDO daqui (está agora em motor360.js)
 
