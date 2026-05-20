@@ -178,6 +178,7 @@ function _logValidacao(motivo, detalhe, id360, idMl, nome) {
     var sheet   = ss.getSheetByName("LOGS") || ss.insertSheet("LOGS");
     var ts      = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), "yyyy-MM-dd HH:mm:ss");
     var nextRow = sheet.getLastRow() + 1;
+    sheet.getRange(nextRow, 2, 1, 2).setNumberFormat("@");
     sheet.getRange(nextRow, 1, 1, 6).setValues([[
       ts, id360 || "S/ ID", idMl || "S/ ML", nome || "S/ NOME", "GATEWAY",
       (motivo + ": " + String(detalhe)).slice(0, 1000)
@@ -284,14 +285,15 @@ function doPost(e) {
   var data  = JSON.parse(e.postData.contents);
 
   // Telemetria: log do payload com titularidade real do tenant
-  var logId360 = data.vendedor_id     ? "'" + data.vendedor_id     : "S/ ID";
-  var logIdMl  = data.vendedor_id_ml  ? "'" + data.vendedor_id_ml  : "S/ ML";
-  var logNome  = data.vendedor_nome || "S/ NOME";
+  var logId360 = data.vendedor_id    || "S/ ID";
+  var logIdMl  = data.vendedor_id_ml || "S/ ML";
+  var logNome  = data.vendedor_nome  || "S/ NOME";
   try {
     var ssLog    = SpreadsheetApp.openById(props.getProperty("LOG_SHEET_ID"));
     var sheetLog = ssLog.getSheetByName("LOGS") || ssLog.insertSheet("LOGS");
     var tsLog    = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), "yyyy-MM-dd HH:mm:ss");
     var nextLog  = sheetLog.getLastRow() + 1;
+    sheetLog.getRange(nextLog, 2, 1, 2).setNumberFormat("@");
     sheetLog.getRange(nextLog, 1, 1, 6).setValues([[
       tsLog, logId360, logIdMl, logNome, "GATEWAY",
       ("PAYLOAD_BRUTO: " + e.postData.contents).slice(0, 49000)
