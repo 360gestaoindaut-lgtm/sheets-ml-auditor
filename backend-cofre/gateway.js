@@ -35,7 +35,7 @@ function doGet(e) {
   // 2. Se deu certo: registra/atualiza tenant no Diretório Central e guarda token estendido
   if (resObj.access_token) {
     if (ssId) {
-      var identidade = _registrarTenant(resObj.access_token, transacaoId || "");
+      var identidade = _registrarTenant(resObj.access_token, transacaoId || "", ssId);
       var tokenFinal = {
         access_token:    resObj.access_token,
         refresh_token:   resObj.refresh_token,
@@ -72,7 +72,7 @@ function doGet(e) {
  * Retorna { vendedor_id_360, vendedor_id_ml, vendedor_nome }.
  * Em qualquer falha retorna strings vazias — autenticação prossegue sem identidade.
  */
-function _registrarTenant(accessToken, transacaoId) {
+function _registrarTenant(accessToken, transacaoId, planilhaId) {
   var vazio = { vendedor_id_360: "", vendedor_id_ml: "", vendedor_nome: "" };
   var props   = PropertiesService.getScriptProperties();
   var sheetId = props.getProperty("CLIENT_SHEET_ID");
@@ -85,8 +85,9 @@ function _registrarTenant(accessToken, transacaoId) {
   var me = JSON.parse(meResp.getContentText());
   if (!me || !me.id) return vazio;
 
-  var mlId   = String(me.id);
-  var mlNick = me.nickname || "";
+  var mlId        = String(me.id);
+  var mlNick      = me.nickname || "";
+  var idNormPlan  = String(planilhaId || "").trim();
 
   try {
     var ss    = SpreadsheetApp.openById(sheetId);
@@ -94,12 +95,13 @@ function _registrarTenant(accessToken, transacaoId) {
     if (!sheet) sheet = ss.insertSheet("CLIENTES");
 
     var lastRow = sheet.getLastRow();
-    // Lê B:H (7 colunas a partir da col 2) para cobrir TRANSACAO_ID na col H
+    // Lê B:J (9 colunas a partir da col 2) para cobrir PLANILHA_ID na col J
     var dados = lastRow >= 2
-      ? sheet.getRange(2, 2, lastRow - 1, 7).getValues()
+      ? sheet.getRange(2, 2, lastRow - 1, 9).getValues()
       : [];
     // dados[i][0]=B SELLER_ID_360 | [1]=C SELLER_ID_ML | [2]=D SELLER_NICKNAME_ML
     // [3]=E STATUS | [4]=F NOTAS  | [5]=G EMAIL_COMPRADOR | [6]=H TRANSACAO_ID
+    // [7]=I ORIGEM | [8]=J PLANILHA_ID
 
     // ── Prioridade 1: Handshake Hotmart ──────────────────────────────────────
     if (transacaoId) {
@@ -108,10 +110,17 @@ function _registrarTenant(accessToken, transacaoId) {
         if (String(dados[i][6]) === transacaoId) { idxTid = i; break; }
       }
       if (idxTid >= 0) {
-        var id360 = String(dados[idxTid][0]);
+        var id360  = String(dados[idxTid][0]);
         var linha  = idxTid + 2; // +2: dados é 0-indexed a partir da linha 2
+        var savedP = String(dados[idxTid][8] || "").trim();
+        if (savedP && idNormPlan && savedP !== idNormPlan) {
+          throw new Error("DISTRIBUICAO_BLOQUEADA: Hardware ID não confere com o titular.");
+        }
+        if (!savedP && idNormPlan) {
+          sheet.getRange(linha, 10, 1, 1).setValue(idNormPlan); // J — primeiro acesso
+        }
         sheet.getRange(linha, 3, 1, 2).setValues([[mlId, mlNick]]); // C:D
-        sheet.getRange(linha, 5, 1, 1).setValues([["Ativo"]]);      // E (col I = ORIGEM já está correta)
+        sheet.getRange(linha, 5, 1, 1).setValues([["Ativo"]]);      // E
         return { vendedor_id_360: id360, vendedor_id_ml: mlId, vendedor_nome: mlNick };
       }
     }
@@ -122,7 +131,14 @@ function _registrarTenant(accessToken, transacaoId) {
       if (String(dados[j][1]) === mlId) { idxMl = j; break; }
     }
     if (idxMl >= 0) {
-      var id360 = String(dados[idxMl][0]);
+      var id360  = String(dados[idxMl][0]);
+      var savedP = String(dados[idxMl][8] || "").trim();
+      if (savedP && idNormPlan && savedP !== idNormPlan) {
+        throw new Error("DISTRIBUICAO_BLOQUEADA: Hardware ID não confere com o titular.");
+      }
+      if (!savedP && idNormPlan) {
+        sheet.getRange(idxMl + 2, 10, 1, 1).setValue(idNormPlan); // J — primeiro acesso
+      }
       if (String(dados[idxMl][2]) !== mlNick) {
         sheet.getRange(idxMl + 2, 4, 1, 1).setValues([[mlNick]]); // D
       }
@@ -142,9 +158,9 @@ function _registrarTenant(accessToken, transacaoId) {
     // Força formato texto em B e C antes de gravar (preserva zeros à esquerda)
     sheet.getRange(lastRow + 1, 2, 1, 2).setNumberFormat("@");
     // Layout: A=DATA | B=SELLER_ID_360 | C=SELLER_ID_ML | D=SELLER_NICKNAME_ML |
-    //         E=STATUS | F=NOTAS | G=ORIGEM | H=TRANSACAO_ID | I=DATA_ATIVACAO
-    sheet.getRange(lastRow + 1, 1, 1, 9).setValues([[
-      agora, novoId360, mlId, mlNick, "Ativo", "", origem, transacaoId || "", agora
+    //         E=STATUS | F=NOTAS | G=ORIGEM | H=TRANSACAO_ID | I=DATA_ATIVACAO | J=PLANILHA_ID
+    sheet.getRange(lastRow + 1, 1, 1, 10).setValues([[
+      agora, novoId360, mlId, mlNick, "Ativo", "", origem, transacaoId || "", agora, idNormPlan
     ]]);
     return { vendedor_id_360: novoId360, vendedor_id_ml: mlId, vendedor_nome: mlNick };
 
