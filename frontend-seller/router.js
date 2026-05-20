@@ -185,7 +185,7 @@ function rodarRaioX() {
     PROGRESS_MSG:   "Iniciando auditoria de " + totalPendente + " anúncios..."
   }, 21600);
 
-  var planilhaId   = ss.getId();
+  var planilhaId   = licenca.planilhaId || "";
   var scriptProps  = PropertiesService.getScriptProperties();
   var vendedorId   = scriptProps.getProperty("CLIENT_ID")    || "";
   var vendedorIdMl = scriptProps.getProperty("CLIENT_ID_ML") || "";
@@ -407,7 +407,7 @@ function renovarToken() {
         refresh_token: refreshToken,
         email:         lic ? lic.email : "",
         chave:         lic ? lic.chave : "",
-        planilhaId:    SpreadsheetApp.getActiveSpreadsheet().getId()
+        planilhaId:    lic ? (lic.planilhaId || "") : ""
       }),
       muteHttpExceptions: true
     });
