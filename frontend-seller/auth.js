@@ -12,14 +12,22 @@ var WEB_APP_URL = "https://script.google.com/macros/s/AKfycbzsq5T3x40SSgcKmhxJhE
  */
 function registrarCsrfState(uuid, ssId) {
   var transacaoId = "";
+
+  // 1. Tenta metadados (Legado V1 — onboarding via DriveApp clone)
   try {
     var metadados = SpreadsheetApp.getActiveSpreadsheet()
       .createDeveloperMetadataFinder()
       .withKey("TRANSACAO_ID")
       .find();
     if (metadados.length > 0) transacaoId = metadados[0].getValue();
-  } catch(err) {
-    console.error("registrarCsrfState: falha ao ler TRANSACAO_ID — " + err.message);
+  } catch(err) { console.warn("registrarCsrfState: sem metadados V1 — " + err.message); }
+
+  // 2. Fallback V2: cópia self-service não carrega DeveloperMetadata;
+  //    usa a chave de licença ativada (licenca_chave em DocumentProperties)
+  if (!transacaoId || String(transacaoId).trim() === "") {
+    try {
+      transacaoId = PropertiesService.getDocumentProperties().getProperty("licenca_chave") || "";
+    } catch(err) {}
   }
 
   UrlFetchApp.fetch(WEB_APP_URL, {
