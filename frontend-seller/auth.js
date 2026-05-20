@@ -159,9 +159,5 @@ function obterLicenca() {
   var email = p.getProperty("licenca_email");
   var chave = p.getProperty("licenca_chave");
   if (!email || !chave) return null;
-  return {
-    email:      email,
-    chave:      chave,
-    planilhaId: SpreadsheetApp.getActiveSpreadsheet().getId()
-  };
+  return { email: email, chave: chave };
 }

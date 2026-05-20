@@ -146,6 +146,10 @@ function rodarRaioX() {
     return SpreadsheetApp.getUi().alert("❌ Conecte sua conta antes de continuar.");
   }
 
+  var docProps   = PropertiesService.getDocumentProperties();
+  var emailSalvo = docProps.getProperty("licenca_email") || "";
+  var chaveSalva = docProps.getProperty("licenca_chave") || "";
+
   var ultimaLinha   = Math.max(sheet.getLastRow(), 2);
   var dadosPlanilha = sheet.getRange("A2:AN" + ultimaLinha).getValues();
 
@@ -185,7 +189,7 @@ function rodarRaioX() {
     PROGRESS_MSG:   "Iniciando auditoria de " + totalPendente + " anúncios..."
   }, 21600);
 
-  var planilhaId   = licenca.planilhaId || "";
+  var planilhaId   = ss.getId();
   var scriptProps  = PropertiesService.getScriptProperties();
   var vendedorId   = scriptProps.getProperty("CLIENT_ID")    || "";
   var vendedorIdMl = scriptProps.getProperty("CLIENT_ID_ML") || "";
@@ -232,16 +236,16 @@ function rodarRaioX() {
         contentType:        "application/json",
         payload:            JSON.stringify({
           action:         "processarRaioX",
-          email:          licenca.email,
-          chave:          licenca.chave,
+          email:          emailSalvo,
+          chave:          chaveSalva,
           planilhaId:     planilhaId,
           access_token:   token,
           refresh_token:  refresh,
           user_id:        userId,
           ids:            lote.map(function(item) { return item.id; }),
-          vendedor_id:    vendedorId,
-          vendedor_id_ml: vendedorIdMl,
-          vendedor_nome:  vendedorNome
+          vendedor_id:    vendedorId    || "",
+          vendedor_id_ml: vendedorIdMl || "",
+          vendedor_nome:  vendedorNome  || ""
         }),
         muteHttpExceptions: true
       });
@@ -407,7 +411,7 @@ function renovarToken() {
         refresh_token: refreshToken,
         email:         lic ? lic.email : "",
         chave:         lic ? lic.chave : "",
-        planilhaId:    lic ? (lic.planilhaId || "") : ""
+        planilhaId:    SpreadsheetApp.getActiveSpreadsheet().getId()
       }),
       muteHttpExceptions: true
     });
