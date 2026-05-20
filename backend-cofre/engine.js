@@ -43,6 +43,7 @@ function logImmediate(vendedorId360, vendedorIdMl, vendedorNome, idLote, mensage
     if (!sheet) sheet = ss.insertSheet("LOGS");
     var nextRow = sheet.getLastRow() + 1;
     var ts      = obterDataFormatada360();
+    sheet.getRange(nextRow, 2, 1, 2).setNumberFormat("@");
     sheet.getRange(nextRow, 1, 1, 6).setValues([[ts, vendedorId360, vendedorIdMl, vendedorNome, "IMEDIATO", mensagem]]);
   } catch(e) {
     console.error("logImmediate: falha — " + e.message);
@@ -61,9 +62,11 @@ function flushLogs(idLote) {
     var ss    = SpreadsheetApp.openById(sheetId);
     var sheet = ss.getSheetByName("LOGS");
     if (!sheet) sheet = ss.insertSheet("LOGS");
-    var ts   = obterDataFormatada360();
-    var data = _logs.map(function(msg) { return [ts, _vendedorId, _vendedorIdMl, _vendedorNome, idLote, msg]; });
-    sheet.getRange(sheet.getLastRow() + 1, 1, data.length, 6).setValues(data);
+    var ts       = obterDataFormatada360();
+    var data     = _logs.map(function(msg) { return [ts, _vendedorId, _vendedorIdMl, _vendedorNome, idLote, msg]; });
+    var startRow = sheet.getLastRow() + 1;
+    sheet.getRange(startRow, 2, data.length, 2).setNumberFormat("@");
+    sheet.getRange(startRow, 1, data.length, 6).setValues(data);
   } catch(e) {
     console.error("flushLogs: falha ao gravar — " + e.message);
   } finally {
