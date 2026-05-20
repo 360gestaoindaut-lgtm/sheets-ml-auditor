@@ -167,6 +167,10 @@ function _registrarTenant(accessToken, transacaoId) {
 function _validarLicenca(email, chave, planilhaId) {
   if (!email || !chave || !planilhaId) return false;
 
+  var emailNorm = String(email).trim().toLowerCase();
+  var chaveNorm = String(chave).trim();
+  var idNorm    = String(planilhaId).trim();
+
   var props   = PropertiesService.getScriptProperties();
   var sheetId = props.getProperty("CLIENT_SHEET_ID");
   if (!sheetId) return false;
@@ -176,43 +180,44 @@ function _validarLicenca(email, chave, planilhaId) {
     var sheet = ss.getSheetByName("CLIENTES");
     if (!sheet) return false;
 
-    var lastRow  = sheet.getLastRow();
-    var lastCol  = sheet.getLastColumn();
+    var lastRow = sheet.getLastRow();
+    var lastCol = sheet.getLastColumn();
     if (lastRow < 2 || lastCol < 1) return false;
 
-    // Localiza coluna PLANILHA_ID dinamicamente na linha 1
-    var headers       = sheet.getRange(1, 1, 1, lastCol).getValues()[0];
-    var colPlanilhaId = -1;
-    for (var c = 0; c < headers.length; c++) {
-      if (String(headers[c]).trim() === "PLANILHA_ID") { colPlanilhaId = c + 1; break; }
-    }
+    // Localiza coluna PLANILHA_ID dinamicamente na linha 1 (imune a espaços acidentais)
+    var headers  = sheet.getRange(1, 1, 1, lastCol).getValues()[0];
+    var colIndex = headers.map(function(h) { return String(h).trim(); }).indexOf("PLANILHA_ID");
+    // colIndex é 0-based; -1 se não encontrado
 
-    // Lê todas as colunas das linhas de dados (cobrindo colPlanilhaId se existir)
-    var numCols = colPlanilhaId > lastCol ? colPlanilhaId : lastCol;
-    var dados   = sheet.getRange(2, 1, lastRow - 1, numCols).getValues();
+    // Lê todas as linhas de dados (lastCol já cobre PLANILHA_ID pois está na linha 1)
+    var dados = sheet.getRange(2, 1, lastRow - 1, lastCol).getValues();
 
     // Localiza linha pelo par email (col G = índice 6) + chave (col H = índice 7)
     var idxRow = -1;
     for (var i = 0; i < dados.length; i++) {
-      var rowEmail = String(dados[i][6] || "").trim().toLowerCase();
-      var rowChave = String(dados[i][7] || "").trim();
-      if (rowEmail === email.toLowerCase() && rowChave === chave) { idxRow = i; break; }
+      if (String(dados[i][6] || "").trim().toLowerCase() === emailNorm &&
+          String(dados[i][7] || "").trim()                === chaveNorm) {
+        idxRow = i;
+        break;
+      }
     }
     if (idxRow < 0) return false; // licença não encontrada
 
-    // Sem coluna PLANILHA_ID: não é possível aplicar binding, permite acesso
-    if (colPlanilhaId < 0) return true;
+    // Sem coluna PLANILHA_ID: binding não configurado — permite acesso
+    if (colIndex < 0) return true;
 
-    var savedId = String(dados[idxRow][colPlanilhaId - 1] || "").trim();
+    // Aplica hardware binding com lógica à prova de falhas
+    var savedId     = dados[idxRow][colIndex];
+    var isCellEmpty = (!savedId || String(savedId).trim() === "");
 
-    if (!savedId) {
-      // Primeiro acesso: vincula a planilha
-      sheet.getRange(idxRow + 2, colPlanilhaId).setValue(planilhaId);
+    if (isCellEmpty) {
+      // Primeiro acesso: vincula esta planilha à licença (idxRow+2: +1 header, +1 base-1)
+      sheet.getRange(idxRow + 2, colIndex + 1).setValue(idNorm);
       return true;
     }
 
     // Acessos subsequentes: verifica vínculo
-    return savedId === planilhaId;
+    return String(savedId).trim() === idNorm;
 
   } catch(err) {
     console.error("_validarLicenca: " + err.message);
