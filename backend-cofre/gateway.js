@@ -170,7 +170,7 @@ function _registrarTenant(accessToken, transacaoId, planilhaId) {
   }
 }
 
-function _logValidacao(motivo, detalhe) {
+function _logValidacao(motivo, detalhe, id360, idMl, nome) {
   var logId = PropertiesService.getScriptProperties().getProperty("LOG_SHEET_ID");
   if (!logId) return;
   try {
@@ -179,7 +179,7 @@ function _logValidacao(motivo, detalhe) {
     var ts      = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), "yyyy-MM-dd HH:mm:ss");
     var nextRow = sheet.getLastRow() + 1;
     sheet.getRange(nextRow, 1, 1, 6).setValues([[
-      ts, "S/ ID", "S/ ML", "S/ NOME", "GATEWAY",
+      ts, id360 || "S/ ID", idMl || "S/ ML", nome || "S/ NOME", "GATEWAY",
       (motivo + ": " + String(detalhe)).slice(0, 1000)
     ]]);
   } catch(e) {}
@@ -195,9 +195,9 @@ function _logValidacao(motivo, detalhe) {
  * Condição 2 — Acessos subsequentes: compara PLANILHA_ID salvo; true se igual, false se divergir.
  * Se a coluna PLANILHA_ID ainda não existir no cabeçalho, permite o acesso sem binding.
  */
-function _validarLicenca(email, chave, planilhaId) {
+function _validarLicenca(email, chave, planilhaId, id360, idMl, nome) {
   if (!email || !chave || !planilhaId) {
-    _logValidacao("INPUTS_VAZIOS", "email=" + (email || "[vazio]") + " | chave=" + (chave ? "[ok]" : "[vazio]") + " | planilhaId=" + (planilhaId || "[vazio]"));
+    _logValidacao("INPUTS_VAZIOS", "email=" + (email || "[vazio]") + " | chave=" + (chave ? "[ok]" : "[vazio]") + " | planilhaId=" + (planilhaId || "[vazio]"), id360, idMl, nome);
     return false;
   }
 
@@ -208,7 +208,7 @@ function _validarLicenca(email, chave, planilhaId) {
   var props   = PropertiesService.getScriptProperties();
   var sheetId = props.getProperty("CLIENT_SHEET_ID");
   if (!sheetId) {
-    _logValidacao("SEM_CLIENT_SHEET_ID", "ScriptProperty CLIENT_SHEET_ID nao configurada no backend");
+    _logValidacao("SEM_CLIENT_SHEET_ID", "ScriptProperty CLIENT_SHEET_ID nao configurada no backend", id360, idMl, nome);
     return false;
   }
 
@@ -216,14 +216,14 @@ function _validarLicenca(email, chave, planilhaId) {
     var ss    = SpreadsheetApp.openById(sheetId);
     var sheet = ss.getSheetByName("CLIENTES");
     if (!sheet) {
-      _logValidacao("ABA_CLIENTES_AUSENTE", "sheetId=" + sheetId);
+      _logValidacao("ABA_CLIENTES_AUSENTE", "sheetId=" + sheetId, id360, idMl, nome);
       return false;
     }
 
     var lastRow = sheet.getLastRow();
     var lastCol = sheet.getLastColumn();
     if (lastRow < 2 || lastCol < 1) {
-      _logValidacao("SHEET_VAZIA", "lastRow=" + lastRow + " | lastCol=" + lastCol);
+      _logValidacao("SHEET_VAZIA", "lastRow=" + lastRow + " | lastCol=" + lastCol, id360, idMl, nome);
       return false;
     }
 
@@ -241,12 +241,12 @@ function _validarLicenca(email, chave, planilhaId) {
       }
     }
     if (idxRow < 0) {
-      _logValidacao("LICENCA_NAO_ENCONTRADA", "email=" + emailNorm + " | chave=" + chaveNorm + " | linhas_varridas=" + dados.length);
+      _logValidacao("LICENCA_NAO_ENCONTRADA", "email=" + emailNorm + " | chave=" + chaveNorm + " | linhas_varridas=" + dados.length, id360, idMl, nome);
       return false;
     }
 
     if (colIndex < 0) {
-      _logValidacao("PLANILHA_ID_SEM_COLUNA", "Coluna PLANILHA_ID inexistente — acesso liberado sem binding");
+      _logValidacao("PLANILHA_ID_SEM_COLUNA", "Coluna PLANILHA_ID inexistente — acesso liberado sem binding", id360, idMl, nome);
       return true;
     }
 
@@ -255,20 +255,20 @@ function _validarLicenca(email, chave, planilhaId) {
 
     if (isCellEmpty) {
       sheet.getRange(idxRow + 2, colIndex + 1).setValue(idNorm);
-      _logValidacao("BINDING_GRAVADO", "planilhaId=" + idNorm + " | linha=" + (idxRow + 2));
+      _logValidacao("BINDING_GRAVADO", "planilhaId=" + idNorm + " | linha=" + (idxRow + 2), id360, idMl, nome);
       return true;
     }
 
     var match = String(savedId).trim() === idNorm;
     if (!match) {
-      _logValidacao("BINDING_DIVERGENTE", "gravado=" + String(savedId).trim() + " | recebido=" + idNorm);
+      _logValidacao("BINDING_DIVERGENTE", "gravado=" + String(savedId).trim() + " | recebido=" + idNorm, id360, idMl, nome);
     } else {
-      _logValidacao("BINDING_OK", "planilhaId=" + idNorm);
+      _logValidacao("BINDING_OK", "planilhaId=" + idNorm, id360, idMl, nome);
     }
     return match;
 
   } catch(err) {
-    _logValidacao("EXCECAO_INTERNA", err.message);
+    _logValidacao("EXCECAO_INTERNA", err.message, id360, idMl, nome);
     console.error("_validarLicenca: " + err.message);
     return false;
   }
@@ -284,9 +284,9 @@ function doPost(e) {
   var data  = JSON.parse(e.postData.contents);
 
   // Telemetria: log do payload com titularidade real do tenant
-  var logId360 = data.vendedor_id  || data.email || "S/ ID";
-  var logIdMl  = data.vendedor_id_ml              || "S/ ML";
-  var logNome  = data.vendedor_nome                || "S/ NOME";
+  var logId360 = data.vendedor_id     ? "'" + data.vendedor_id     : "S/ ID";
+  var logIdMl  = data.vendedor_id_ml  ? "'" + data.vendedor_id_ml  : "S/ ML";
+  var logNome  = data.vendedor_nome || "S/ NOME";
   try {
     var ssLog    = SpreadsheetApp.openById(props.getProperty("LOG_SHEET_ID"));
     var sheetLog = ssLog.getSheetByName("LOGS") || ssLog.insertSheet("LOGS");
@@ -301,7 +301,7 @@ function doPost(e) {
   // ── Middleware: validação de licença e vínculo de instância ──────────────
   var ROTAS_SISTEMA = ["registerCsrfState", "fetchToken"];
   if (ROTAS_SISTEMA.indexOf(data.action) === -1) {
-    if (!_validarLicenca(data.email || "", data.chave || "", data.planilhaId || "")) {
+    if (!_validarLicenca(data.email || "", data.chave || "", data.planilhaId || "", logId360, logIdMl, logNome)) {
       return ContentService
         .createTextOutput(JSON.stringify({ error: "Unauthorized" }))
         .setMimeType(ContentService.MimeType.JSON);
