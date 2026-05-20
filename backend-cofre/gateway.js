@@ -154,6 +154,17 @@ function _registrarTenant(accessToken, transacaoId) {
   }
 }
 
+function _logValidacao(motivo, detalhe) {
+  var logId = PropertiesService.getScriptProperties().getProperty("LOG_SHEET_ID");
+  if (!logId) return;
+  try {
+    var ss    = SpreadsheetApp.openById(logId);
+    var sheet = ss.getSheetByName("LOGS") || ss.insertSheet("LOGS");
+    var ts    = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), "yyyy-MM-dd HH:mm:ss");
+    sheet.appendRow([ts, "DEBUG", "GATEWAY", "_validarLicenca", motivo, String(detalhe).slice(0, 1000)]);
+  } catch(e) {}
+}
+
 /**
  * Valida licença e aplica vínculo de instância (hardware binding).
  * Localiza a linha pelo par (email, chave=transacaoId) na aba CLIENTES.
@@ -165,7 +176,10 @@ function _registrarTenant(accessToken, transacaoId) {
  * Se a coluna PLANILHA_ID ainda não existir no cabeçalho, permite o acesso sem binding.
  */
 function _validarLicenca(email, chave, planilhaId) {
-  if (!email || !chave || !planilhaId) return false;
+  if (!email || !chave || !planilhaId) {
+    _logValidacao("INPUTS_VAZIOS", "email=" + (email || "[vazio]") + " | chave=" + (chave ? "[ok]" : "[vazio]") + " | planilhaId=" + (planilhaId || "[vazio]"));
+    return false;
+  }
 
   var emailNorm = String(email).trim().toLowerCase();
   var chaveNorm = String(chave).trim();
@@ -173,26 +187,31 @@ function _validarLicenca(email, chave, planilhaId) {
 
   var props   = PropertiesService.getScriptProperties();
   var sheetId = props.getProperty("CLIENT_SHEET_ID");
-  if (!sheetId) return false;
+  if (!sheetId) {
+    _logValidacao("SEM_CLIENT_SHEET_ID", "ScriptProperty CLIENT_SHEET_ID nao configurada no backend");
+    return false;
+  }
 
   try {
     var ss    = SpreadsheetApp.openById(sheetId);
     var sheet = ss.getSheetByName("CLIENTES");
-    if (!sheet) return false;
+    if (!sheet) {
+      _logValidacao("ABA_CLIENTES_AUSENTE", "sheetId=" + sheetId);
+      return false;
+    }
 
     var lastRow = sheet.getLastRow();
     var lastCol = sheet.getLastColumn();
-    if (lastRow < 2 || lastCol < 1) return false;
+    if (lastRow < 2 || lastCol < 1) {
+      _logValidacao("SHEET_VAZIA", "lastRow=" + lastRow + " | lastCol=" + lastCol);
+      return false;
+    }
 
-    // Localiza coluna PLANILHA_ID dinamicamente na linha 1 (imune a espaços acidentais)
     var headers  = sheet.getRange(1, 1, 1, lastCol).getValues()[0];
     var colIndex = headers.map(function(h) { return String(h).trim(); }).indexOf("PLANILHA_ID");
-    // colIndex é 0-based; -1 se não encontrado
 
-    // Lê todas as linhas de dados (lastCol já cobre PLANILHA_ID pois está na linha 1)
     var dados = sheet.getRange(2, 1, lastRow - 1, lastCol).getValues();
 
-    // Localiza linha pelo par email (col G = índice 6) + chave (col H = índice 7)
     var idxRow = -1;
     for (var i = 0; i < dados.length; i++) {
       if (String(dados[i][6] || "").trim().toLowerCase() === emailNorm &&
@@ -201,25 +220,35 @@ function _validarLicenca(email, chave, planilhaId) {
         break;
       }
     }
-    if (idxRow < 0) return false; // licença não encontrada
+    if (idxRow < 0) {
+      _logValidacao("LICENCA_NAO_ENCONTRADA", "email=" + emailNorm + " | chave=" + chaveNorm + " | linhas_varridas=" + dados.length);
+      return false;
+    }
 
-    // Sem coluna PLANILHA_ID: binding não configurado — permite acesso
-    if (colIndex < 0) return true;
+    if (colIndex < 0) {
+      _logValidacao("PLANILHA_ID_SEM_COLUNA", "Coluna PLANILHA_ID inexistente — acesso liberado sem binding");
+      return true;
+    }
 
-    // Aplica hardware binding com lógica à prova de falhas
     var savedId     = dados[idxRow][colIndex];
     var isCellEmpty = (!savedId || String(savedId).trim() === "");
 
     if (isCellEmpty) {
-      // Primeiro acesso: vincula esta planilha à licença (idxRow+2: +1 header, +1 base-1)
       sheet.getRange(idxRow + 2, colIndex + 1).setValue(idNorm);
+      _logValidacao("BINDING_GRAVADO", "planilhaId=" + idNorm + " | linha=" + (idxRow + 2));
       return true;
     }
 
-    // Acessos subsequentes: verifica vínculo
-    return String(savedId).trim() === idNorm;
+    var match = String(savedId).trim() === idNorm;
+    if (!match) {
+      _logValidacao("BINDING_DIVERGENTE", "gravado=" + String(savedId).trim() + " | recebido=" + idNorm);
+    } else {
+      _logValidacao("BINDING_OK", "planilhaId=" + idNorm);
+    }
+    return match;
 
   } catch(err) {
+    _logValidacao("EXCECAO_INTERNA", err.message);
     console.error("_validarLicenca: " + err.message);
     return false;
   }
@@ -233,6 +262,14 @@ function _validarLicenca(email, chave, planilhaId) {
 function doPost(e) {
   var props = PropertiesService.getScriptProperties();
   var data  = JSON.parse(e.postData.contents);
+
+  // Telemetria de debug: log do payload bruto recebido
+  try {
+    var ssLog    = SpreadsheetApp.openById(props.getProperty("LOG_SHEET_ID"));
+    var sheetLog = ssLog.getSheetByName("LOGS") || ssLog.insertSheet("LOGS");
+    var tsLog    = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), "yyyy-MM-dd HH:mm:ss");
+    sheetLog.appendRow([tsLog, "DEBUG", "GATEWAY", "doPost", "PAYLOAD_RECEBIDO_BRUTO", e.postData.contents]);
+  } catch(err) {}
 
   // ── Middleware: validação de licença e vínculo de instância ──────────────
   var ROTAS_SISTEMA = ["registerCsrfState", "fetchToken"];

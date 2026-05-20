@@ -231,22 +231,29 @@ function rodarRaioX() {
     var resposta   = null;
     var httpStatus = 0;
     try {
+      var payloadObj = {
+        action:         "processarRaioX",
+        email:          emailSalvo,
+        chave:          chaveSalva,
+        planilhaId:     planilhaId,
+        access_token:   token,
+        refresh_token:  refresh,
+        user_id:        userId,
+        ids:            lote.map(function(item) { return item.id; }),
+        vendedor_id:    vendedorId    || "",
+        vendedor_id_ml: vendedorIdMl || "",
+        vendedor_nome:  vendedorNome  || ""
+      };
+      try {
+        var debugSheet = ss.getSheetByName("DEBUG_360");
+        if (!debugSheet) debugSheet = ss.insertSheet("DEBUG_360");
+        debugSheet.getRange("A1").setValue("ÚLTIMO PAYLOAD ENVIADO PARA O BACKEND:");
+        debugSheet.getRange("A2").setValue(JSON.stringify(payloadObj));
+      } catch(e) {}
       var httpResp = UrlFetchApp.fetch(COFRE_URL, {
         method:             "post",
         contentType:        "application/json",
-        payload:            JSON.stringify({
-          action:         "processarRaioX",
-          email:          emailSalvo,
-          chave:          chaveSalva,
-          planilhaId:     planilhaId,
-          access_token:   token,
-          refresh_token:  refresh,
-          user_id:        userId,
-          ids:            lote.map(function(item) { return item.id; }),
-          vendedor_id:    vendedorId    || "",
-          vendedor_id_ml: vendedorIdMl || "",
-          vendedor_nome:  vendedorNome  || ""
-        }),
+        payload:            JSON.stringify(payloadObj),
         muteHttpExceptions: true
       });
       httpStatus = httpResp.getResponseCode();
