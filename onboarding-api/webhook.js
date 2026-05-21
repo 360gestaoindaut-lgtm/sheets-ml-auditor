@@ -248,7 +248,7 @@ function _emailTexto(nome, linkCopia, email, chave) {
     linkCopia,
     "",
     "PASSO 2 — Na planilha copiada, acesse o menu '360 Gestão - ML' e clique em",
-    "'🔑 Ativar Licença'. Informe as credenciais abaixo:",
+    "'Ativar Licença'. Informe as credenciais abaixo:",
     "",
     "  E-mail de Compra : " + email,
     "  Chave de Licença : " + chave,
@@ -282,7 +282,7 @@ function _emailHtml(nome, linkCopia, email, chave) {
     + '<div style="margin:24px 0;">'
     + '<p style="font-size:15px;font-weight:700;margin-bottom:8px;">Passo 2 — Ative sua licença</p>'
     + '<p style="color:#555;margin-bottom:12px;">Na planilha copiada, acesse o menu '
-    + '<strong>360 Gestão - ML → 🔑 Ativar Licença</strong> e insira as credenciais abaixo:</p>'
+    + '<strong>360 Gestão - ML → &#x1F511; Ativar Licença</strong> e insira as credenciais abaixo:</p>'
     + '<div style="background:#f5f5f5;border-radius:8px;padding:16px 20px;font-family:monospace;font-size:14px;line-height:2;">'
     + '<div><span style="color:#888;font-size:12px;">E-MAIL DE COMPRA</span><br>'
     + '<strong>' + emailEsc + '</strong></div>'
