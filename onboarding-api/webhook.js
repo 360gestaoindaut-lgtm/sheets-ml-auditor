@@ -185,12 +185,16 @@ function _provisionarVenda(transacaoId, rawPayload, props) {
     if (!masterId) throw new Error("MASTER_SHEET_ID nao configurado");
     var linkCopia = "https://docs.google.com/spreadsheets/d/" + masterId + "/copy";
 
-    MailApp.sendEmail({
-      to:       email_comprador,
-      subject:  "✅ Seu acesso ao Raio-X ML está pronto!",
-      body:     _emailTexto(nome_comprador, linkCopia, email_comprador, transacaoId),
-      htmlBody: _emailHtml(nome_comprador, linkCopia, email_comprador, transacaoId)
-    });
+    GmailApp.sendEmail(
+      email_comprador,
+      "✅ Seu acesso ao Raio-X ML está pronto!",
+      _emailTexto(nome_comprador, linkCopia, email_comprador, transacaoId),
+      {
+        htmlBody: _emailHtml(nome_comprador, linkCopia, email_comprador, transacaoId),
+        from:     "onboarding@360gestaoindaut.com.br",
+        name:     "360 Gestão"
+      }
+    );
     _log("EMAIL_ENVIADO", email_comprador);
 
     // Sucesso: remove da fila e grava marca de idempotência
