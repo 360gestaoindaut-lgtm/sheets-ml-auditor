@@ -180,19 +180,20 @@ ScriptProperty `CLIENT_SHEET_ID` aponta para a planilha do Diretório Central. A
 | B | SELLER_ID_360 | 6 dígitos com zeros à esquerda, ex: `"000042"` — formato texto obrigatório |
 | C | SELLER_ID_ML | ID numérico do seller no ML — formato texto obrigatório |
 | D | SELLER_NICKNAME_ML | Nickname no ML, atualizado a cada re-login |
-| E | STATUS | `"Aguardando ML"` (provisionado pela Hotmart) / `"Ativo"` (após OAuth) |
+| E | STATUS | `"Ativo"` em todos os fluxos (v2 — não há mais estado "Aguardando ML") |
 | F | NOTAS | Uso livre |
-| G | EMAIL_COMPRADOR | E-mail do comprador na Hotmart (pode diferir do e-mail Google/ML) |
-| H | TRANSACAO_ID | ID da transação Hotmart; vazio para tenants manuais |
-| I | ORIGEM | `"Hotmart"` ou `"Manual"` |
+| G | EMAIL_COMPRADOR | E-mail do comprador na Hotmart — base de busca de `_validarLicenca` |
+| H | TRANSACAO_ID | ID da transação Hotmart; usado como chave de licença |
+| I | ORIGEM | `"Hotmart"` (onboarding-api) ou `"Manual"` (OAuth direto) |
+| J | PLANILHA_ID | ID da planilha do seller; gravado no primeiro OAuth (hardware binding) |
 
 **Regras de tipagem:** `setNumberFormat("@")` aplicado nas colunas B e C antes de qualquer `setValues` que grave nelas. Nunca usar `appendRow` nesta aba.
 
 **Upsert — três prioridades de `_registrarTenant`:**
 
-1. **Handshake (col H):** Se `transacaoId` vier no payload, busca na col H. Se encontrar: UPDATE cols C (SELLER_ID_ML), D (SELLER_NICKNAME_ML), E (STATUS → "Ativo") — sem criar nova linha. A linha já existe com status "Aguardando ML" desde o provisionamento Hotmart.
-2. **Re-login (col C):** Busca `SELLER_ID_ML` na col C. Se encontrar: atualiza nickname se mudou.
-3. **Novo manual:** Gera próximo `SELLER_ID_360` sequencial e insere linha completa de 9 colunas com ORIGEM = "Manual".
+1. **Handshake (col H):** Se `transacaoId` vier no payload, busca na col H. Se encontrar: UPDATE cols C (SELLER_ID_ML), D (SELLER_NICKNAME_ML), E (STATUS) — sem criar nova linha. Se `PLANILHA_ID` (col J) estiver vazia, grava o ID da planilha (primeiro acesso).
+2. **Re-login (col C):** Busca `SELLER_ID_ML` na col C. Se encontrar: atualiza nickname se mudou. Também confirma/grava col J no primeiro acesso.
+3. **Novo manual:** Gera próximo `SELLER_ID_360` sequencial e insere linha completa de 10 colunas (A–J) com ORIGEM = "Manual".
 
 **Lifecycle do token:**
 - `invalid_grant` → `renovarToken()` apaga todas as `UserProperties` e alerta o seller para reconectar.
@@ -257,40 +258,37 @@ Hotmart ──POST /webhook?hottok=TOKEN──► doPost (recepcionista)
                               processarFilaVendas → _provisionarVenda
                                               │
                                    Regista no Banco Central (CLIENT_SHEET_ID)
-                                   novoId360 sequencial, STATUS = "Aguardando ML"
+                                   novoId360 sequencial, STATUS = "Ativo"
                                               │
-                                   nomePasta = novoId360 + " - " + nome + " - " + txId
-                                   DriveApp.getFolderById(PASTA_CLIENTES_ID)
-                                     .createFolder(nomePasta)
+                                   linkCopia = "https://docs.google.com/spreadsheets/d/"
+                                               + MASTER_SHEET_ID + "/copy"
                                               │
-                                   DriveApp.getFileById(MASTER_SHEET_ID)
-                                     .makeCopy(nomePasta, subpasta)
-                                              │
-                                   novaPlanilha.addEditor(email_comprador)
-                                   DriveApp.getFileById(copia.getId())
-                                     .setShareableByEditors(false)
-                                   novaPlanilha.addDeveloperMetadata("TRANSACAO_ID", txId)
-                                              │
-                                   MailApp.sendEmail(email_comprador, link + aviso)
+                                   GmailApp.sendEmail(email_comprador,
+                                     linkCopia,           ← seller faz sua própria cópia
+                                     transacaoId como chave de licença)
                                               │
                                    props.setProperty("TX_"+txId, "true")  ← idempotência
 ```
+
+> **Modelo self-service (v2):** o seller copia a planilha Master por conta própria (link `/copy`). O `TRANSACAO_ID` não é mais injetado via `addDeveloperMetadata` — chega ao backend como `licenca_chave` gravada em `DocumentProperties` no momento da ativação de licença.
 
 ### ScriptProperties do onboarding-api
 
 | Chave | Valor |
 |-------|-------|
 | `HOTMART_TOKEN` | Token configurado na URL do webhook no painel Hotmart (parâmetro `?hottok=`) |
-| `MASTER_SHEET_ID` | ID da planilha `frontend-seller` Master (template) |
-| `PASTA_CLIENTES_ID` | ID da pasta "01. Clientes Ativos" no Drive da 360 Gestão |
+| `MASTER_SHEET_ID` | ID da planilha `frontend-seller` Master (template — link `/copy` enviado ao comprador) |
 | `CLIENT_SHEET_ID` | ID da planilha do Diretório Central (mesma usada pelo backend-cofre) |
 | `LOG_SHEET_ID` | ID da planilha de telemetria (aba LOGS, 6 colunas) |
 
 ### Como TRANSACAO_ID chega ao backend
 
-1. `onboarding-api` grava `TRANSACAO_ID` via `addDeveloperMetadata` na cópia do seller.
-2. Quando o seller conecta o ML, `auth.js:registrarCsrfState` lê o metadado com `createDeveloperMetadataFinder` e inclui `transacao_id` no POST para `registerCsrfState`.
-3. O `backend-cofre/gateway.js` armazena `CSRF_TID_{uuid}`, recupera em `doGet` e passa para `_registrarTenant`, que executa o handshake pela Prioridade 1 (col H da aba CLIENTES).
+`auth.js:registrarCsrfState` tenta duas fontes em ordem:
+
+1. **V1 (legado — clones via DriveApp):** lê `TRANSACAO_ID` via `createDeveloperMetadataFinder` na planilha ativa.
+2. **V2 (self-service — caminho principal):** se não houver metadado, lê `licenca_chave` de `DocumentProperties` — valor gravado pelo seller no momento da ativação de licença.
+
+Em ambos os casos, o `transacao_id` é incluído no POST para `registerCsrfState`. O `backend-cofre/gateway.js` armazena `CSRF_TID_{uuid}`, recupera em `doGet` e passa para `_registrarTenant`, que executa o handshake pela Prioridade 1 (col H da aba CLIENTES).
 
 ### Validação de segurança
 

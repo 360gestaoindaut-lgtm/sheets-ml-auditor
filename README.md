@@ -123,19 +123,23 @@ O backend precisa estar publicado como Web App para receber requisições. Faça
 O microsserviço `onboarding-api` processa a compra aprovada sem intervenção manual:
 
 1. Hotmart dispara o webhook `PURCHASE_APPROVED` para a URL do `onboarding-api`.
-2. O serviço clona a planilha Master, compartilha com o e-mail do comprador e envia o link por e-mail.
-3. O `TRANSACAO_ID` é gravado nos metadados do arquivo (`addDeveloperMetadata`).
-4. O seller abre a planilha → menu **1. Conectar Conta Mercado Livre** → o OAuth preenche a identidade automaticamente via handshake (Fase 12).
-5. Menu **2. Sincronizar Catálogo** → popula os IDs MLB.
-6. Menu **3. Rodar Raio-X (Auditoria)** → inicia a auditoria.
+2. O serviço registra o tenant no Banco Central (STATUS = "Ativo") e envia e-mail ao comprador com dois dados: link para copiar a planilha Master (`/copy`) e o `TRANSACAO_ID` da compra como **chave de licença**.
+3. O seller clica no link → cria sua própria cópia da planilha no Google Drive.
+4. Na planilha copiada → menu **🔑 Ativar Licença** → informa o e-mail de compra e a chave recebida.
+5. Menu **1. Conectar Conta Mercado Livre** → o OAuth vincula a identidade ML ao tenant via handshake (chave de licença).
+6. Menu **2. Sincronizar Catálogo** → popula os IDs MLB.
+7. Menu **3. Rodar Raio-X (Auditoria)** → inicia a auditoria.
 
 ### Onboarding manual (fallback)
 
-1. Duplique a planilha Master `frontend-seller` no Google Drive.
-2. Menu **1. Conectar Conta Mercado Livre** → o seller autoriza o OAuth (cria novo registro sequencial no Banco Central).
-3. Menu **2. Sincronizar Catálogo** → popula os IDs MLB.
-4. Clicar em **Criar Cabeçalho** se a aba DESEMPENHO for nova.
-5. Menu **3. Rodar Raio-X (Auditoria)** → inicia a auditoria.
+> Requer uma chave de licença válida (transacao_id). Sem ela, a ferramenta bloqueia o acesso.
+
+1. Acesse o link de cópia da planilha Master e faça sua cópia no Google Drive.
+2. Menu **🔑 Ativar Licença** → informe e-mail e chave de licença.
+3. Menu **1. Conectar Conta Mercado Livre** → o seller autoriza o OAuth (cria novo registro no Banco Central).
+4. Menu **2. Sincronizar Catálogo** → popula os IDs MLB.
+5. Clicar em **Criar Cabeçalho** se a aba DESEMPENHO for nova.
+6. Menu **3. Rodar Raio-X (Auditoria)** → inicia a auditoria.
 
 ---
 
@@ -174,8 +178,7 @@ No editor GAS do `onboarding-api`:
 | Chave | Valor |
 |-------|-------|
 | `HOTMART_TOKEN` | Token secreto — configure o mesmo valor na URL do webhook no painel Hotmart como `?hottok=TOKEN` |
-| `MASTER_SHEET_ID` | ID da planilha Master `frontend-seller` |
-| `PASTA_CLIENTES_ID` | ID da pasta "01. Clientes Ativos" no Drive |
+| `MASTER_SHEET_ID` | ID da planilha Master `frontend-seller` (link `/copy` enviado ao comprador) |
 | `CLIENT_SHEET_ID` | ID da planilha do Diretório Central (Banco Central de tenants) |
 | `LOG_SHEET_ID` | ID da planilha de telemetria (aba LOGS) |
 
@@ -211,7 +214,7 @@ A API do Mercado Livre não requer chave de API para leitura pública, mas exige
 │
 ├── onboarding-api/            # GAS project: microsserviço de webhook Hotmart
 │   ├── .clasp.json            # Vínculo com o Script ID do projeto GAS do onboarding
-│   ├── appsscript.json        # Manifest: webapp anônimo, escopos Drive/Sheets/MailApp/scriptapp
+│   ├── appsscript.json        # Manifest: webapp anônimo, escopos Drive/Sheets/GmailApp/scriptapp
 │   └── webhook.js             # doPost: valida hottok, enfileira; worker: provisiona, registra, envia e-mail
 │
 ├── frontend-seller/
