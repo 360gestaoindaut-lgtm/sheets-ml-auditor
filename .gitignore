@@ -24,3 +24,6 @@ package-lock.json
 # ── SO ───────────────────────────────────────────────────────
 .DS_Store
 Thumbs.db
+
+# ── Webhook Teste ────────────────────────────────────────────
+backend-cofre/webhooksender.js
