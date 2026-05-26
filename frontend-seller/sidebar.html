@@ -30,6 +30,7 @@
       padding: 3px 8px;
       border-radius: 4px;
       letter-spacing: 0.4px;
+      flex-shrink: 0;
     }
     .hd-title {
       font-size: 14px;
@@ -54,9 +55,7 @@
     }
 
     /* ─── Formulário de ativação ─────────────────────────── */
-    .field {
-      margin-bottom: 10px;
-    }
+    .field { margin-bottom: 10px; }
     .field label {
       display: block;
       font-size: 11px;
@@ -75,11 +74,12 @@
       outline: none;
       transition: border-color 0.2s;
     }
-    .field input:focus {
-      border-color: #3483fa;
-      background: #fff;
-    }
-    .btn-ativar {
+    .field input:focus { border-color: #3483fa; background: #fff; }
+    .ativ-info { font-size: 12px; color: #777; margin-bottom: 12px; line-height: 1.5; }
+    .msg-erro { color: #c62828; font-size: 12px; margin-top: 8px; min-height: 16px; }
+
+    /* ─── Botões ─────────────────────────────────────────── */
+    .btn {
       width: 100%;
       padding: 10px;
       background: linear-gradient(90deg, #1565c0, #3483fa);
@@ -92,20 +92,78 @@
       margin-top: 4px;
       transition: opacity 0.2s;
     }
-    .btn-ativar:hover   { opacity: 0.88; }
-    .btn-ativar:active  { opacity: 0.75; }
-    .btn-ativar:disabled { opacity: 0.5; cursor: not-allowed; }
-    .ativ-info {
-      font-size: 12px;
-      color: #777;
-      margin-bottom: 12px;
-      line-height: 1.5;
+    .btn:hover   { opacity: 0.88; }
+    .btn:active  { opacity: 0.75; }
+    .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+    /* ─── Spinner ────────────────────────────────────────── */
+    .spinner-wrap { display: flex; flex-direction: column; align-items: center; padding: 24px 0; gap: 14px; }
+    .spinner {
+      width: 32px; height: 32px;
+      border: 3px solid #e8ecf3;
+      border-top-color: #3483fa;
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
     }
-    .msg-erro {
-      color: #c62828;
-      font-size: 12px;
-      margin-top: 8px;
-      min-height: 16px;
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .spinner-msg { font-size: 12px; color: #666; }
+
+    /* ─── Dashboard de saúde (seleção) ──────────────────── */
+    .total-badge {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      margin-bottom: 12px;
+    }
+    .total-badge .lbl { font-size: 11px; color: #888; text-transform: uppercase; letter-spacing: 0.5px; }
+    .total-badge .val { font-size: 18px; font-weight: 700; color: #1565c0; }
+
+    .status-list { display: flex; flex-direction: column; gap: 0; }
+    .status-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 7px 0;
+      border-bottom: 1px solid #f0f2f7;
+    }
+    .status-row:last-child { border-bottom: none; }
+    .status-row input[type="checkbox"] {
+      width: 15px; height: 15px;
+      accent-color: #3483fa;
+      cursor: pointer;
+      flex-shrink: 0;
+    }
+    .status-icone { font-size: 13px; flex-shrink: 0; width: 18px; text-align: center; }
+    .status-label { flex: 1; font-size: 12px; color: #333; }
+    .status-mini-bar {
+      width: 48px; height: 4px;
+      background: #e8ecf3;
+      border-radius: 2px;
+      overflow: hidden;
+      flex-shrink: 0;
+    }
+    .status-mini-fill { height: 100%; border-radius: 2px; background: #3483fa; }
+    .status-count { font-size: 12px; font-weight: 600; color: #444; min-width: 38px; text-align: right; flex-shrink: 0; }
+
+    .sel-summary {
+      margin-top: 12px;
+      padding: 9px 0 4px;
+      border-top: 1px solid #f0f2f7;
+    }
+    .sel-summary .sel-count { font-size: 12px; color: #555; margin-bottom: 3px; }
+    .sel-summary .sel-time  { font-size: 11px; color: #888; }
+    .sel-summary .sel-time strong { color: #e65100; }
+
+    .warn-closed {
+      background: #fff8e1;
+      border-left: 3px solid #ffb300;
+      border-radius: 0 5px 5px 0;
+      padding: 8px 10px;
+      font-size: 11px;
+      color: #6d4c00;
+      margin-top: 10px;
+      line-height: 1.5;
+      display: none;
     }
 
     /* ─── Barra de progresso ─────────────────────────────── */
@@ -123,23 +181,21 @@
       width: 0%;
       transition: width 0.7s cubic-bezier(0.4, 0, 0.2, 1);
     }
-    .bar-fill.done {
-      background: linear-gradient(90deg, #1b5e20, #2e7d32);
-    }
+    .bar-fill.done { background: linear-gradient(90deg, #1b5e20, #2e7d32); }
     .bar-meta {
       display: flex;
       justify-content: space-between;
       font-size: 11px;
       color: #666;
     }
-    .bar-pct           { font-weight: 700; color: #1565c0; }
-    .bar-pct.done      { color: #2e7d32; }
+    .bar-pct      { font-weight: 700; color: #1565c0; }
+    .bar-pct.done { color: #2e7d32; }
 
     /* ─── Mensagem de status ─────────────────────────────── */
-    .status         { margin-top: 10px; font-size: 12px; font-weight: 500; min-height: 16px; color: #555; }
-    .status.running { color: #1565c0; }
-    .status.done    { color: #2e7d32; }
-    .status.error   { color: #c62828; }
+    .status-msg         { margin-top: 10px; font-size: 12px; font-weight: 500; min-height: 16px; color: #555; }
+    .status-msg.running { color: #1565c0; }
+    .status-msg.done    { color: #2e7d32; }
+    .status-msg.error   { color: #c62828; }
 
     /* ─── Aviso ──────────────────────────────────────────── */
     .warn {
@@ -153,11 +209,7 @@
     }
 
     /* ─── Dica rotativa ──────────────────────────────────── */
-    .tip {
-      background: #e8f1fc;
-      border-radius: 6px;
-      padding: 12px;
-    }
+    .tip { background: #e8f1fc; border-radius: 6px; padding: 12px; }
     .tip-head {
       font-size: 10px;
       font-weight: 700;
@@ -174,6 +226,25 @@
       transition: opacity 0.4s ease;
     }
     .tip-body.fading { opacity: 0; }
+
+    /* ─── Concluído ──────────────────────────────────────── */
+    .concluido-wrap { text-align: center; padding: 20px 0 10px; }
+    .concluido-ico  { font-size: 36px; margin-bottom: 10px; }
+    .concluido-txt  { font-size: 14px; font-weight: 700; color: #1b5e20; margin-bottom: 4px; }
+    .concluido-sub  { font-size: 12px; color: #666; margin-bottom: 16px; }
+    .btn-secondary {
+      width: 100%;
+      padding: 9px;
+      background: #fff;
+      color: #1565c0;
+      font-size: 12px;
+      font-weight: 700;
+      border: 1.5px solid #3483fa;
+      border-radius: 6px;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+    .btn-secondary:hover { background: #e8f1fc; }
   </style>
 </head>
 <body>
@@ -196,15 +267,63 @@
         <label for="inpChave">Chave de Licença</label>
         <input type="text" id="inpChave" placeholder="HP123456789" autocomplete="off">
       </div>
-      <button class="btn-ativar" id="btnAtivar">Ativar Planilha</button>
+      <button class="btn" id="btnAtivar">Ativar Planilha</button>
       <div class="msg-erro" id="msgErro"></div>
+    </div>
+  </div>
+
+  <!-- ═══ SEÇÃO: Descoberta (spinner) ════════════════════════════════════ -->
+  <div id="sectionDescoberta" style="display:none;">
+    <div class="card">
+      <div class="spinner-wrap">
+        <div class="spinner"></div>
+        <span class="spinner-msg" id="msgDescoberta">Consultando seu catálogo no Mercado Livre...</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══ SEÇÃO: Seleção de Status ═══════════════════════════════════════ -->
+  <div id="sectionSelecao" style="display:none;">
+    <div class="card">
+      <div class="card-label">Catálogo do Seller</div>
+      <div class="total-badge">
+        <span class="lbl">Total encontrado</span>
+        <span class="val" id="totalGeral">0</span>
+      </div>
+      <div class="status-list" id="statusList"></div>
+      <div class="sel-summary">
+        <div class="sel-count" id="selCount">0 anúncios selecionados</div>
+        <div class="sel-time"  id="selTime"></div>
+      </div>
+      <div class="warn-closed" id="warnClosed">
+        ⚠️ Anúncios <strong>Encerrados</strong> podem ter dados de performance limitados na auditoria.
+      </div>
+    </div>
+    <button class="btn" id="btnAuditar">Sincronizar e Auditar</button>
+  </div>
+
+  <!-- ═══ SEÇÃO: Sincronização ════════════════════════════════════════════ -->
+  <div id="sectionSinc" style="display:none;">
+    <div class="card">
+      <div class="card-label">Baixando Catálogo</div>
+      <div class="bar-track">
+        <div class="bar-fill" id="sincFill"></div>
+      </div>
+      <div class="bar-meta">
+        <span id="sincCountLbl">0 anúncios</span>
+        <span class="bar-pct" id="sincPctLbl">0%</span>
+      </div>
+      <div class="status-msg running" id="sincMsg">Iniciando scan...</div>
+    </div>
+    <div class="card">
+      <div class="warn">
+        ⚠️ <strong>Não feche esta aba.</strong> A sincronização está em andamento.
+      </div>
     </div>
   </div>
 
   <!-- ═══ SEÇÃO: Auditoria em Andamento ══════════════════════════════════ -->
   <div id="sectionAuditoria" style="display:none;">
-
-    <!-- Progresso -->
     <div class="card">
       <div class="card-label">Progresso da Auditoria</div>
       <div class="bar-track">
@@ -214,25 +333,32 @@
         <span id="countLbl">0 de 0 anúncios</span>
         <span class="bar-pct" id="pctLbl">0%</span>
       </div>
-      <div class="status" id="statusLbl">Aguardando início da auditoria...</div>
+      <div class="status-msg" id="statusLbl">Aguardando início da auditoria...</div>
     </div>
-
-    <!-- Aviso de aba aberta -->
     <div class="card">
       <div class="warn">
         ⚠️ <strong>Não feche esta aba.</strong>
         Se fechar, o script continua em segundo plano. Reabra o painel pelo menu a qualquer momento para retomar o acompanhamento.
       </div>
     </div>
-
-    <!-- Dicas rotativas de SEO -->
     <div class="card">
       <div class="tip">
         <div class="tip-head">💡 Dica de SEO &amp; Performance</div>
         <div class="tip-body" id="tipLbl">Carregando...</div>
       </div>
     </div>
+  </div>
 
+  <!-- ═══ SEÇÃO: Concluído ════════════════════════════════════════════════ -->
+  <div id="sectionConcluido" style="display:none;">
+    <div class="card">
+      <div class="concluido-wrap">
+        <div class="concluido-ico">🏁</div>
+        <div class="concluido-txt">Auditoria concluída!</div>
+        <div class="concluido-sub" id="concluidoSub">Todos os anúncios foram processados.</div>
+      </div>
+      <button class="btn-secondary" id="btnNovaCampanha">Fazer nova auditoria</button>
+    </div>
   </div>
 
   <script>
@@ -247,121 +373,295 @@
       "Características técnicas completas reduzem devoluções e aumentam a confiança do comprador."
     ];
 
-    var _tipIdx = Math.floor(Math.random() * TIPS.length);
-    var _timer  = null;
-    var _done   = false;
+    var _tipIdx       = Math.floor(Math.random() * TIPS.length);
+    var _tipTimer     = null;
+    var _pollSinc     = null;
+    var _pollAudit    = null;
+    var _sincTotal    = 0;   // total esperado do sync (vindo da descoberta)
+    var _auditDone    = false;
 
-    // ── Inicialização: verifica licença antes de mostrar qualquer seção ───
+    // ─── Seções ──────────────────────────────────────────────────────────
+    var SECTIONS = ["sectionAtivacao","sectionDescoberta","sectionSelecao",
+                    "sectionSinc","sectionAuditoria","sectionConcluido"];
+
+    function showSection(id, titulo) {
+      SECTIONS.forEach(function(s) {
+        document.getElementById(s).style.display = (s === id) ? "block" : "none";
+      });
+      if (titulo) document.getElementById("hdTitle").textContent = titulo;
+    }
+
+    // ─── Inicialização ────────────────────────────────────────────────────
     document.addEventListener("DOMContentLoaded", function() {
       google.script.run
-        .withSuccessHandler(verificarLicenca)
-        .withFailureHandler(function() { verificarLicenca(null); })
+        .withSuccessHandler(inicializar)
+        .withFailureHandler(function() { inicializar(null); })
         .obterLicenca();
     });
 
-    function verificarLicenca(licenca) {
+    function inicializar(licenca) {
       if (!licenca || !licenca.email || !licenca.chave) {
-        document.getElementById("hdTitle").textContent = "Ativação Necessária";
-        document.getElementById("sectionAtivacao").style.display = "block";
-        document.getElementById("sectionAuditoria").style.display = "none";
-      } else {
-        document.getElementById("hdTitle").textContent = "Raio-X em Andamento";
-        document.getElementById("sectionAtivacao").style.display = "none";
-        document.getElementById("sectionAuditoria").style.display = "block";
-        iniciarAuditoria();
+        showSection("sectionAtivacao", "Ativação Necessária");
+        return;
       }
+      // Verifica se há algo em andamento
+      google.script.run
+        .withSuccessHandler(function(sinc) {
+          if (sinc.status === "running") {
+            showSection("sectionSinc", "Sincronizando Catálogo");
+            iniciarPollingSync();
+            return;
+          }
+          google.script.run
+            .withSuccessHandler(function(s) {
+              var auditando = s.total > 0 && s.msg.indexOf("concluída") < 0;
+              var concluida = s.total > 0 && s.msg.indexOf("concluída") > -1;
+              if (concluida) {
+                mostrarConcluido(s.msg);
+              } else if (auditando) {
+                showSection("sectionAuditoria", "Raio-X em Andamento");
+                iniciarPollingAudit();
+              } else {
+                showSection("sectionDescoberta", "Analisando Catálogo...");
+                iniciarDescoberta();
+              }
+            })
+            .obterStatusRaioX();
+        })
+        .obterStatusSinc();
     }
 
-    // ── Formulário de ativação ────────────────────────────────────────────
+    // ─── Formulário de ativação ───────────────────────────────────────────
     document.getElementById("btnAtivar").addEventListener("click", function() {
       var email = document.getElementById("inpEmail").value.trim();
       var chave = document.getElementById("inpChave").value.trim();
       var erro  = document.getElementById("msgErro");
-
-      if (!email || !chave) {
-        erro.textContent = "Preencha o e-mail e a chave de licença.";
-        return;
-      }
-      if (email.indexOf("@") < 0) {
-        erro.textContent = "Informe um e-mail válido.";
-        return;
-      }
-
+      if (!email || !chave) { erro.textContent = "Preencha o e-mail e a chave de licença."; return; }
+      if (email.indexOf("@") < 0) { erro.textContent = "Informe um e-mail válido."; return; }
       erro.textContent = "";
-      document.getElementById("btnAtivar").disabled = true;
-      document.getElementById("btnAtivar").textContent = "Ativando...";
-
+      var btn = document.getElementById("btnAtivar");
+      btn.disabled = true; btn.textContent = "Ativando...";
       google.script.run
         .withSuccessHandler(function() {
-          document.getElementById("hdTitle").textContent = "Raio-X em Andamento";
-          document.getElementById("sectionAtivacao").style.display = "none";
-          document.getElementById("sectionAuditoria").style.display = "block";
-          iniciarAuditoria();
+          showSection("sectionDescoberta", "Analisando Catálogo...");
+          iniciarDescoberta();
         })
         .withFailureHandler(function(err) {
-          document.getElementById("btnAtivar").disabled = false;
-          document.getElementById("btnAtivar").textContent = "Ativar Planilha";
+          btn.disabled = false; btn.textContent = "Ativar Planilha";
           document.getElementById("msgErro").textContent = "Erro ao salvar: " + err.message;
         })
         .salvarLicenca(email, chave);
     });
 
-    // ── UI de auditoria ───────────────────────────────────────────────────
-    function iniciarAuditoria() {
-      showTip(false);
-      poll();
-      _timer = setInterval(poll, 4000);
-      setInterval(function() { showTip(true); }, 14000);
+    // ─── Descoberta do catálogo ───────────────────────────────────────────
+    function iniciarDescoberta() {
+      document.getElementById("msgDescoberta").textContent = "Consultando seu catálogo no Mercado Livre...";
+      google.script.run
+        .withSuccessHandler(function(res) {
+          if (res.error === "sem_token") {
+            document.getElementById("msgDescoberta").textContent =
+              "❌ Conecte sua conta ML pelo menu antes de continuar.";
+            return;
+          }
+          if (res.error === "token_expirado") {
+            document.getElementById("msgDescoberta").textContent =
+              "❌ Sessão expirada. Reconecte a conta ML pelo menu.";
+            return;
+          }
+          mostrarSelecao(res);
+        })
+        .withFailureHandler(function(err) {
+          document.getElementById("msgDescoberta").textContent = "❌ Erro: " + err.message;
+        })
+        .descobrirCatalogo();
     }
 
-    function showTip(animate) {
-      var el = document.getElementById("tipLbl");
-      if (animate) {
-        el.classList.add("fading");
-        setTimeout(function() {
-          _tipIdx = (_tipIdx + 1) % TIPS.length;
-          el.textContent = TIPS[_tipIdx];
-          el.classList.remove("fading");
-        }, 400);
-      } else {
-        el.textContent = TIPS[_tipIdx];
-      }
+    // ─── Dashboard de seleção ─────────────────────────────────────────────
+    function mostrarSelecao(res) {
+      showSection("sectionSelecao", "Selecionar Catálogo");
+
+      var total = res.total || 0;
+      document.getElementById("totalGeral").textContent = total.toLocaleString("pt-BR");
+
+      var lista = document.getElementById("statusList");
+      lista.innerHTML = "";
+      (res.statuses || []).forEach(function(s) {
+        var pct = total > 0 ? Math.round(s.count / total * 100) : 0;
+        var row = document.createElement("div");
+        row.className = "status-row";
+        row.innerHTML =
+          '<input type="checkbox" id="chk-' + s.status + '" value="' + s.status + '" checked>' +
+          '<span class="status-icone">' + s.icone + '</span>' +
+          '<span class="status-label">' + s.label + '</span>' +
+          '<div class="status-mini-bar"><div class="status-mini-fill" style="width:' + pct + '%"></div></div>' +
+          '<span class="status-count">' + s.count.toLocaleString("pt-BR") + '</span>';
+        lista.appendChild(row);
+        row.querySelector("input").addEventListener("change", atualizarResumoSelecao);
+      });
+
+      atualizarResumoSelecao();
     }
 
-    function applyStatus(s) {
+    function atualizarResumoSelecao() {
+      var checkboxes = document.querySelectorAll("#statusList input[type=checkbox]");
+      var total = 0;
+      var temClosed = false;
+      checkboxes.forEach(function(chk) {
+        if (chk.checked) {
+          var row = chk.closest(".status-row");
+          var countStr = row.querySelector(".status-count").textContent.replace(/\./g, "").replace(/,/g, "");
+          total += parseInt(countStr) || 0;
+          if (chk.value === "closed") temClosed = true;
+        }
+      });
+      _sincTotal = total;
+
+      document.getElementById("selCount").textContent =
+        total.toLocaleString("pt-BR") + " anúncio" + (total !== 1 ? "s" : "") + " selecionado" + (total !== 1 ? "s" : "");
+      document.getElementById("selTime").innerHTML =
+        total > 0
+          ? "Estimativa de auditoria: <strong>" + estimarTempo(total) + "</strong>"
+          : "";
+      document.getElementById("warnClosed").style.display = temClosed ? "block" : "none";
+      document.getElementById("btnAuditar").disabled = total === 0;
+    }
+
+    function estimarTempo(total) {
+      // ~15s por lote de 10, ciclos de 4.5 min com pausa de 1 min entre triggers
+      var batches   = Math.ceil(total / 10);
+      var segExec   = batches * 15;
+      var ciclos    = Math.ceil(segExec / 270);
+      var segTotal  = segExec + Math.max(0, ciclos - 1) * 60;
+      var min       = Math.ceil(segTotal / 60);
+      if (min < 2)  return "menos de 2 minutos";
+      if (min < 60) return "~" + min + " minutos";
+      var h = (min / 60).toFixed(1).replace(".", ",");
+      return "~" + h + " hora" + (parseFloat(h) > 1 ? "s" : "") + " (segundo plano)";
+    }
+
+    // ─── Iniciar sincronização + auditoria ────────────────────────────────
+    document.getElementById("btnAuditar").addEventListener("click", function() {
+      var checkboxes = document.querySelectorAll("#statusList input[type=checkbox]:checked");
+      var statusList = [];
+      checkboxes.forEach(function(chk) { statusList.push(chk.value); });
+      if (statusList.length === 0) return;
+
+      showSection("sectionSinc", "Sincronizando Catálogo");
+      document.getElementById("sincMsg").textContent = "Iniciando scan...";
+
+      // Sync: chamada server-side, retorna quando a gravação na planilha terminar
+      google.script.run
+        .withSuccessHandler(function() {
+          // Sync concluído — inicia auditoria
+          clearInterval(_pollSinc);
+          showSection("sectionAuditoria", "Raio-X em Andamento");
+          iniciarPollingAudit();
+          google.script.run
+            .withSuccessHandler(function() { /* rodarRaioX retornou (timeout ou concluído) */ })
+            .withFailureHandler(function(err) {
+              document.getElementById("statusLbl").textContent = "❌ " + err.message;
+              document.getElementById("statusLbl").className   = "status-msg error";
+            })
+            .rodarRaioX();
+        })
+        .withFailureHandler(function(err) {
+          clearInterval(_pollSinc);
+          document.getElementById("sincMsg").textContent = "❌ Falha no sync: " + err.message;
+          document.getElementById("sincMsg").className   = "status-msg error";
+        })
+        .sincronizarAnuncios(statusList);
+
+      iniciarPollingSync();
+    });
+
+    // ─── Polling: sincronização ───────────────────────────────────────────
+    function iniciarPollingSync() {
+      _pollSinc = setInterval(function() {
+        google.script.run
+          .withSuccessHandler(function(s) {
+            var count = s.count || 0;
+            var pct   = (_sincTotal > 0) ? Math.min(100, Math.round(count / _sincTotal * 100)) : 0;
+            document.getElementById("sincFill").style.width = pct + "%";
+            document.getElementById("sincPctLbl").textContent  = pct + "%";
+            document.getElementById("sincCountLbl").textContent = count.toLocaleString("pt-BR") + " anúncios";
+            document.getElementById("sincMsg").textContent     = s.msg || "Escaneando...";
+            if (s.status === "done" || s.status === "empty" || s.status === "error") {
+              clearInterval(_pollSinc);
+            }
+          })
+          .obterStatusSinc();
+      }, 2500);
+    }
+
+    // ─── Polling: auditoria ───────────────────────────────────────────────
+    function iniciarPollingAudit() {
+      _auditDone = false;
+      iniciarTips();
+      _pollAudit = setInterval(function() {
+        google.script.run
+          .withSuccessHandler(aplicarProgressoAuditoria)
+          .withFailureHandler(function(err) {
+            document.getElementById("statusLbl").textContent = "⚠️ " + err.message;
+            document.getElementById("statusLbl").className   = "status-msg error";
+          })
+          .obterStatusRaioX();
+      }, 4000);
+    }
+
+    function aplicarProgressoAuditoria(s) {
       var atual  = s.atual || 0;
       var total  = s.total || 0;
       var msg    = s.msg   || "Aguardando início da auditoria...";
       var pct    = total > 0 ? Math.min(100, Math.round((atual / total) * 100)) : 0;
       var isDone = msg.indexOf("concluída") > -1;
 
-      document.getElementById("barFill").style.width   = pct + "%";
-      document.getElementById("pctLbl").textContent    = pct + "%";
-      document.getElementById("countLbl").textContent  = atual + " de " + total + " anúncios";
+      document.getElementById("barFill").style.width  = pct + "%";
+      document.getElementById("pctLbl").textContent   = pct + "%";
+      document.getElementById("countLbl").textContent = atual.toLocaleString("pt-BR") + " de " + total.toLocaleString("pt-BR") + " anúncios";
       document.getElementById("statusLbl").textContent = msg;
 
-      var fill  = document.getElementById("barFill");
-      var pctEl = document.getElementById("pctLbl");
-      var msgEl = document.getElementById("statusLbl");
-
       if (isDone) {
-        fill.classList.add("done");
-        pctEl.classList.add("done");
-        msgEl.className = "status done";
-        if (!_done) { _done = true; clearInterval(_timer); }
+        document.getElementById("barFill").classList.add("done");
+        document.getElementById("pctLbl").classList.add("done");
+        document.getElementById("statusLbl").className = "status-msg done";
+        if (!_auditDone) {
+          _auditDone = true;
+          clearInterval(_pollAudit);
+          clearInterval(_tipTimer);
+          setTimeout(function() { mostrarConcluido(msg); }, 2000);
+        }
       } else if (total > 0) {
-        msgEl.className = "status running";
+        document.getElementById("statusLbl").className = "status-msg running";
       }
     }
 
-    function poll() {
-      google.script.run
-        .withSuccessHandler(applyStatus)
-        .withFailureHandler(function(err) {
-          document.getElementById("statusLbl").textContent = "⚠️ " + err.message;
-          document.getElementById("statusLbl").className   = "status error";
-        })
-        .obterStatusRaioX();
+    // ─── Concluído ────────────────────────────────────────────────────────
+    function mostrarConcluido(msg) {
+      var total = (msg.match(/(\d[\d.]*)\s+anúncios/) || ["", ""])[1];
+      document.getElementById("concluidoSub").textContent =
+        total ? total + " anúncios processados." : "Todos os anúncios foram processados.";
+      showSection("sectionConcluido", "Auditoria Concluída");
+    }
+
+    document.getElementById("btnNovaCampanha").addEventListener("click", function() {
+      _sincTotal = 0;
+      _auditDone = false;
+      showSection("sectionDescoberta", "Analisando Catálogo...");
+      iniciarDescoberta();
+    });
+
+    // ─── Dicas rotativas ──────────────────────────────────────────────────
+    function iniciarTips() {
+      var el = document.getElementById("tipLbl");
+      el.textContent = TIPS[_tipIdx];
+      _tipTimer = setInterval(function() {
+        el.classList.add("fading");
+        setTimeout(function() {
+          _tipIdx = (_tipIdx + 1) % TIPS.length;
+          el.textContent = TIPS[_tipIdx];
+          el.classList.remove("fading");
+        }, 400);
+      }, 14000);
     }
   </script>
 </body>

@@ -17,11 +17,20 @@ var CONFIG = {
   SHEET_NAME:    "DESEMPENHO",
   TIMEOUT_TOTAL: 270000,   // 4.5 min — margem para lotes de até 60s antes do teto GAS de 6 min
   BATCH_SIZE:    10,
-  MAX_ANUNCIOS:  5000,
   API_BASE:      "https://api.mercadolibre.com",
-  MODO_TESTE:    false,     // ← true = processa só MAX_TESTE itens; false = todos
+  MODO_TESTE:    false,
   MAX_TESTE:     10
 };
+
+// Status conhecidos do ML consultados na descoberta de catálogo.
+// Adicionados em ordem de relevância para o seller.
+var STATUS_CONHECIDOS = [
+  { status: "active",       label: "Ativo",       icone: "✅" },
+  { status: "paused",       label: "Pausado",     icone: "⏸️" },
+  { status: "closed",       label: "Encerrado",   icone: "🔒" },
+  { status: "under_review", label: "Em revisão",  icone: "🔍" },
+  { status: "inactive",     label: "Inativo",     icone: "⭕" }
+];
 
 // =============================================================================
 // MENU
@@ -32,10 +41,9 @@ function onOpen() {
     .addItem("🔑 Ativar Licença",              "abrirSidebarAtivacao")
     .addSeparator()
     .addItem("1. Conectar Conta Mercado Livre", "abrirLoginML")
-    .addItem("2. Sincronizar Catálogo",          "sincronizarAnuncios")
-    .addItem("3. Rodar Raio-X (Auditoria)",      "abrirSidebarRaioX")
+    .addItem("2. Raio-X do Catálogo",           "abrirSidebarRaioX")
     .addSeparator()
-    .addItem("Criar Cabeçalho", "criarCabecalho")
+    .addItem("Criar Cabeçalho",                "criarCabecalho")
     .addToUi();
 }
 
@@ -57,7 +65,7 @@ function abrirSidebarRaioX() {
   var html = HtmlService.createHtmlOutputFromFile("sidebar")
     .setTitle("Painel de Controle - 360 Gestão");
   SpreadsheetApp.getUi().showSidebar(html);
-  rodarRaioX();
+  // A sidebar conduz o fluxo: descoberta → seleção → sync → auditoria
 }
 
 function obterStatusRaioX() {
@@ -69,38 +77,84 @@ function obterStatusRaioX() {
   };
 }
 
+function obterStatusSinc() {
+  var cache = CacheService.getUserCache();
+  return {
+    status: cache.get("SINC_STATUS") || "idle",
+    count:  parseInt(cache.get("SINC_COUNT") || "0"),
+    msg:    cache.get("SINC_MSG")    || ""
+  };
+}
+
 // =============================================================================
-// 1. SINCRONIZAÇÃO — Modo Scan
+// 1. DESCOBERTA DO CATÁLOGO — paging.total por status (sem paginar IDs)
 // =============================================================================
-function sincronizarAnuncios() {
-  if (!_licencaAtiva()) {
-    SpreadsheetApp.getUi().alert("⚠️ Acesso Bloqueado\n\nPor favor, ative sua licença primeiro para utilizar a ferramenta.");
-    abrirSidebarAtivacao();
-    return;
-  }
+function descobrirCatalogo() {
+  var props  = PropertiesService.getUserProperties();
+  var token  = props.getProperty("access_token");
+  var userId = props.getProperty("user_id");
+  if (!token || !userId) return { error: "sem_token" };
+
+  var headers       = { "Authorization": "Bearer " + token };
+  var resultado     = [];
+  var total         = 0;
+  var tokenExpirado = false;
+
+  STATUS_CONHECIDOS.forEach(function(s) {
+    if (tokenExpirado) return;
+    var url = CONFIG.API_BASE + "/users/" + userId +
+              "/items/search?status=" + s.status + "&limit=1";
+    var res = fetchComStatus(url, headers);
+    if (res.status === 401) { tokenExpirado = true; return; }
+    var count = (res.status === 200 && res.data && res.data.paging)
+                ? (res.data.paging.total || 0) : 0;
+    if (count > 0) {
+      resultado.push({ status: s.status, label: s.label, icone: s.icone, count: count });
+      total += count;
+    }
+  });
+
+  if (tokenExpirado) return { error: "token_expirado" };
+  return { statuses: resultado, total: total };
+}
+
+// =============================================================================
+// 2. SINCRONIZAÇÃO — scan completo dos status selecionados (sem teto fixo)
+// =============================================================================
+function sincronizarAnuncios(statusList) {
+  var statusParam = (Array.isArray(statusList) && statusList.length > 0)
+    ? statusList.join(",")
+    : "active,paused";
+
   var props  = PropertiesService.getUserProperties();
   var token  = props.getProperty("access_token");
   var userId = props.getProperty("user_id");
   var ss     = SpreadsheetApp.getActiveSpreadsheet();
   var sheet  = ss.getSheetByName(CONFIG.SHEET_NAME);
+  var cache  = CacheService.getUserCache();
 
   if (!token || !userId) {
-    return SpreadsheetApp.getUi().alert("❌ Conecte a conta no Passo 1 primeiro.");
+    cache.putAll({ SINC_STATUS: "error", SINC_MSG: "Token não encontrado. Reconecte a conta." }, 21600);
+    return;
   }
 
   sheet.getRange("B2:B").clearContent();
-  ss.toast("Buscando catálogo. Aguarde...", "360 Gestão", 20);
+  cache.putAll({ SINC_STATUS: "running", SINC_COUNT: "0", SINC_MSG: "Iniciando scan..." }, 21600);
 
   var headers  = { "Authorization": "Bearer " + token };
   var todosIds = [];
   var urlScan  = CONFIG.API_BASE + "/users/" + userId +
-                 "/items/search?status=active,paused&search_type=scan&limit=100";
+                 "/items/search?status=" + statusParam + "&search_type=scan&limit=100";
 
   while (true) {
     var res = fetchComStatus(urlScan, headers);
+
     if (res.status === 401) {
       token = renovarToken();
-      if (!token) return SpreadsheetApp.getUi().alert("❌ Token inválido. Reconecte a conta.");
+      if (!token) {
+        cache.putAll({ SINC_STATUS: "error", SINC_MSG: "Token expirado. Reconecte a conta." }, 21600);
+        return;
+      }
       headers = { "Authorization": "Bearer " + token };
       res = fetchComStatus(urlScan, headers);
     }
@@ -109,29 +163,38 @@ function sincronizarAnuncios() {
     if (ids.length === 0) break;
 
     todosIds.push.apply(todosIds, ids);
-    ss.toast("Catálogo: " + todosIds.length + " IDs capturados...", "360 Gestão", 5);
+    cache.putAll({
+      SINC_COUNT: String(todosIds.length),
+      SINC_MSG:   todosIds.length + " anúncios encontrados..."
+    }, 21600);
 
     var scrollId = res.data.scroll_id;
-    if (!scrollId || todosIds.length >= CONFIG.MAX_ANUNCIOS) break;
+    if (!scrollId) break;
     urlScan = CONFIG.API_BASE + "/users/" + userId +
               "/items/search?search_type=scan&scroll_id=" + scrollId;
   }
 
   if (todosIds.length === 0) {
-    return SpreadsheetApp.getUi().alert("⚠️ Nenhum anúncio encontrado.");
+    cache.putAll({ SINC_STATUS: "empty", SINC_MSG: "Nenhum anúncio encontrado para os status selecionados." }, 21600);
+    return;
   }
 
   var formatados = todosIds.map(function(id) { return [id]; });
   sheet.getRange(2, 2, formatados.length, 1).setValues(formatados);
-  SpreadsheetApp.getUi().alert("✅ " + todosIds.length + " anúncios capturados!\n\nAgora clique em 'Rodar Raio-X' para auditar.");
+
+  cache.putAll({
+    SINC_STATUS: "done",
+    SINC_COUNT:  String(todosIds.length),
+    SINC_MSG:    "✅ " + todosIds.length + " anúncios sincronizados."
+  }, 21600);
 }
 
 // =============================================================================
-// 2. RAIO-X — Terminal Burro (roteador de lotes para o servidor 360)
+// 3. RAIO-X — Terminal Burro (roteador de lotes para o servidor 360)
 // =============================================================================
 function rodarRaioX() {
   var licenca = obterLicenca();
-  if (!licenca) return; // Sidebar exibe formulário de ativação — sem alert redundante
+  if (!licenca) return;
 
   var startTotal = Date.now();
 
@@ -153,9 +216,6 @@ function rodarRaioX() {
   var ultimaLinha   = Math.max(sheet.getLastRow(), 2);
   var dadosPlanilha = sheet.getRange("A2:AN" + ultimaLinha).getValues();
 
-  // Identifica pares {indice, id} de linhas ainda não auditadas.
-  // totalGlobal conta todos os MLB da planilha (incluindo já auditados)
-  // para manter o progresso correto entre execuções do trigger.
   var idsPendentes = [];
   var totalGlobal  = 0;
   for (var idx = 0; idx < dadosPlanilha.length; idx++) {
@@ -227,7 +287,6 @@ function rodarRaioX() {
     );
     cache.put("PROGRESS_MSG", "Auditando lote " + loteNum + " de " + numLotes + "...", 21600);
 
-    // Envia o lote ao servidor e recebe as linhas prontas para colar
     var resposta   = null;
     var httpStatus = 0;
     try {
@@ -341,7 +400,7 @@ function _agendarContinuacao() {
   _cancelarTriggerContinuacao();
   ScriptApp.newTrigger("continuarRaioX")
     .timeBased()
-    .after(60 * 1000) // 1 minuto
+    .after(60 * 1000)
     .create();
 }
 
@@ -352,12 +411,11 @@ function _cancelarTriggerContinuacao() {
 }
 
 // =============================================================================
-// 3. FUNÇÕES DE API
+// 4. FUNÇÕES DE API
 // =============================================================================
 
 /**
  * Fetch blindado. Retorna { status, data }.
- * Usado por sincronizarAnuncios para chamadas diretas ao catálogo do ML.
  */
 function fetchComStatus(url, headers, maxTentativas) {
   maxTentativas = maxTentativas || 3;
@@ -395,7 +453,6 @@ function fetchComStatus(url, headers, maxTentativas) {
 
 /**
  * Renova o access_token via Ponte de Autenticação 360.
- * Usado por sincronizarAnuncios quando o token expira durante o scan.
  */
 function renovarToken() {
   var props        = PropertiesService.getUserProperties();
@@ -427,7 +484,7 @@ function renovarToken() {
       if (data.refresh_token) props.setProperty("refresh_token", data.refresh_token);
       return data.access_token;
     }
-    // Token permanentemente revogado no ML: limpa credenciais locais (Vuln. E)
+    // Token permanentemente revogado no ML: limpa credenciais locais
     if (data.error === "invalid_grant") {
       PropertiesService.getUserProperties().deleteAllProperties();
       SpreadsheetApp.getUi().alert(
@@ -444,7 +501,7 @@ function renovarToken() {
 }
 
 // =============================================================================
-// 4. UTILITÁRIOS
+// 5. UTILITÁRIOS
 // =============================================================================
 function _marcarLoteComoErro(sheet, lote) {
   lote.forEach(function(item) {
