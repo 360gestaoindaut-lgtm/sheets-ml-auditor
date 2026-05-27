@@ -27,8 +27,8 @@ Cada seller recebe uma cópia da planilha `frontend-seller` configurada automati
 │
 ├── frontend-seller/          # GAS project: planilha add-on do seller
 │   ├── auth.js               # OAuth flow: CSRF, leitura de TRANSACAO_ID via metadata, polling
-│   ├── router.js             # Terminal: lê IDs → envia lotes ao backend → escreve linhas
-│   └── sidebar.html          # Painel lateral: barra de progresso + dicas SEO rotativas
+│   ├── router.js             # Terminal: descoberta de catálogo, sync, lotes ao backend, progresso
+│   └── sidebar.html          # Painel lateral: 6 fases (descoberta → seleção → sync → auditoria → concluído)
 │
 └── backend-cofre/            # GAS project: servidor privado 360 Gestão (nunca compartilhado)
     ├── gateway.js            # doGet (callback OAuth) + doPost (dispatcher de todas as rotas)
@@ -152,11 +152,15 @@ Para provisionar a planilha de um novo seller:
 
 2. **Autorização OAuth:** No menu **"1. Conectar Conta Mercado Livre"**, o seller autoriza o acesso. O `access_token` e `refresh_token` ficam em `UserProperties` da planilha do seller. O `CLIENT_SECRET` nunca sai do `backend-cofre`.
 
-3. **Sincronizar Catálogo:** Menu **"2. Sincronizar Catálogo"** varre todos os anúncios ativos/pausados e preenche a coluna B (IDs MLB) na aba DESEMPENHO.
+3. **Raio-X do Catálogo:** Menu **"2. Raio-X do Catálogo"** abre o painel lateral que conduz o fluxo completo em fases:
+   - **Descoberta:** consulta `paging.total` por status (active, paused, closed, under_review, inactive) — 5 chamadas leves, sem paginar IDs.
+   - **Seleção:** seller escolhe quais status auditar via checkboxes; a sidebar exibe contagem, proporção e estimativa de tempo.
+   - **Sincronização:** scan completo dos IDs selecionados (sem teto fixo de anúncios), com barra de progresso em tempo real.
+   - **Auditoria:** processamento em lotes de 10 com progresso em tempo real e continuação automática via trigger.
 
 4. **Criar Cabeçalho:** Se a aba DESEMPENHO for nova, usar **"Criar Cabeçalho"** antes da primeira auditoria.
 
-5. **Rodar Raio-X:** Menu **"3. Rodar Raio-X (Auditoria)"** abre o painel lateral e inicia a auditoria. O progresso é visível em tempo real no sidebar.
+5. O progresso é visível em tempo real no sidebar. Se o seller fechar a aba, o script continua em segundo plano e o painel retoma o acompanhamento ao ser reaberto.
 
 ---
 
@@ -217,7 +221,7 @@ ScriptProperty `CLIENT_SHEET_ID` aponta para a planilha do Diretório Central. A
 
 ---
 
-## CONFIG em router.js
+## CONFIG e STATUS_CONHECIDOS em router.js
 
 ```js
 var CONFIG = {
@@ -225,9 +229,24 @@ var CONFIG = {
   MODO_TESTE:    false,   // true = processa só MAX_TESTE itens (desenvolvimento)
   MAX_TESTE:     10,
   TIMEOUT_TOTAL: 270000,  // 4.5 min — margem para lotes de até 60s antes do teto GAS de 6 min
-  MAX_ANUNCIOS:  5000,
 };
+
+// Status consultados na fase de descoberta (paging.total por chamada, sem paginar IDs).
+// Adicionados em ordem de relevância para o seller.
+var STATUS_CONHECIDOS = [
+  { status: "active",       label: "Ativo",       icone: "✅" },
+  { status: "paused",       label: "Pausado",     icone: "⏸️" },
+  { status: "closed",       label: "Encerrado",   icone: "🔒" },
+  { status: "under_review", label: "Em revisão",  icone: "🔍" },
+  { status: "inactive",     label: "Inativo",     icone: "⭕" }
+];
 ```
+
+### Fluxo de descoberta e seleção de catálogo
+
+`descobrirCatalogo()` faz uma chamada `GET /users/{userId}/items/search?status={s}&limit=1` por entrada de `STATUS_CONHECIDOS`, lendo apenas `paging.total` sem paginar IDs. Retorna `{ statuses: [{status, label, icone, count}], total }` para a sidebar.
+
+`sincronizarAnuncios(statusList)` recebe o array de status selecionados pelo seller, constrói `statusParam = statusList.join(",")` e executa o scan completo via `scroll_id` sem teto fixo de anúncios. Atualiza o `CacheService` com `SINC_STATUS / SINC_COUNT / SINC_MSG` a cada página para que a sidebar faça polling de progresso via `obterStatusSinc()`.
 
 ---
 

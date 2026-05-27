@@ -19,9 +19,10 @@ Sellers do Mercado Livre com catálogos grandes (centenas a milhares de anúncio
 onboarding-api/                          frontend-seller/                         backend-cofre/
 ───────────────                          ────────────────                         ──────────────
 Microsserviço de entrada                 Planilha Google Sheets (por tenant)      Servidor privado 360 Gestão (único)
-webhook.js: recebe Hotmart ──clona──►    Planilha provisionada                    gateway.js: valida apiKey → despacha
-registra no Banco Central                router.js: lê IDs → envia lote ────────► engine.js: chama API ML, classifica,
-envia e-mail ao comprador                sidebar.html: painel de progresso                  monta linhas, loga telemetria
+webhook.js: recebe Hotmart               Planilha provisionada                    gateway.js: valida apiKey → despacha
+registra no Banco Central                router.js: descobre catálogo,           engine.js: chama API ML, classifica,
+envia e-mail ao comprador                  seleciona status, sync, lotes ─────►    monta linhas, loga telemetria
+                                         sidebar.html: 6 fases de fluxo ◄── { rows[][], novos_tokens? } ────
                                          auth.js: OAuth flow ML          ◄── { rows[][], novos_tokens? } ────
                                                   escreve linhas por posição
 ```
@@ -127,8 +128,7 @@ O microsserviço `onboarding-api` processa a compra aprovada sem intervenção m
 3. O seller clica no link → cria sua própria cópia da planilha no Google Drive.
 4. Na planilha copiada → menu **🔑 Ativar Licença** → informa o e-mail de compra e a chave recebida.
 5. Menu **1. Conectar Conta Mercado Livre** → o OAuth vincula a identidade ML ao tenant via handshake (chave de licença).
-6. Menu **2. Sincronizar Catálogo** → popula os IDs MLB.
-7. Menu **3. Rodar Raio-X (Auditoria)** → inicia a auditoria.
+6. Menu **2. Raio-X do Catálogo** → o painel lateral guia o seller pelas fases: descoberta de status → seleção via checkboxes → sincronização do catálogo completo → auditoria em lotes.
 
 ### Onboarding manual (fallback)
 
@@ -137,9 +137,8 @@ O microsserviço `onboarding-api` processa a compra aprovada sem intervenção m
 1. Acesse o link de cópia da planilha Master e faça sua cópia no Google Drive.
 2. Menu **🔑 Ativar Licença** → informe e-mail e chave de licença.
 3. Menu **1. Conectar Conta Mercado Livre** → o seller autoriza o OAuth (cria novo registro no Banco Central).
-4. Menu **2. Sincronizar Catálogo** → popula os IDs MLB.
-5. Clicar em **Criar Cabeçalho** se a aba DESEMPENHO for nova.
-6. Menu **3. Rodar Raio-X (Auditoria)** → inicia a auditoria.
+4. Clicar em **Criar Cabeçalho** se a aba DESEMPENHO for nova.
+5. Menu **2. Raio-X do Catálogo** → painel lateral guia descoberta → seleção de status → sync → auditoria.
 
 ---
 
@@ -221,8 +220,8 @@ A API do Mercado Livre não requer chave de API para leitura pública, mas exige
 │   ├── .clasp.json            # Vínculo com o Script ID do projeto GAS do frontend
 │   ├── appsscript.json        # Manifest GAS (timezone, runtime)
 │   ├── auth.js                # OAuth ML: CSRF, leitura de TRANSACAO_ID via metadata, polling
-│   ├── router.js              # Terminal: sincroniza catálogo, roda auditoria, sidebar
-│   └── sidebar.html           # Painel lateral: barra de progresso + dicas SEO rotativas
+│   ├── router.js              # Terminal: descobre catálogo por status, sync sem teto, lotes ao backend
+│   └── sidebar.html           # Painel lateral: 6 fases (descoberta, seleção, sync, auditoria, concluído)
 │
 └── backend-cofre/
     ├── .clasp.json            # Vínculo com o Script ID do projeto GAS do backend
