@@ -246,6 +246,8 @@ var STATUS_CONHECIDOS = [
 
 `descobrirCatalogo()` faz uma chamada `GET /users/{userId}/items/search?status={s}&limit=1` por entrada de `STATUS_CONHECIDOS`, lendo apenas `paging.total` sem paginar IDs. Retorna `{ statuses: [{status, label, icone, count}], total }` para a sidebar.
 
+> **Comportamento esperado da API:** `paging.total` é uma estimativa do índice de busca do ML — não representa os itens efetivamente acessíveis via scan. O painel do ML e uma query sem filtro de status podem exibir contagens 5–15% maiores que a soma dos status conhecidos. Isso é normal: o ML contabiliza internamente rascunhos, itens em moderação profunda e histórico de catálogo que nunca aparecem na API pública. Scan completo com os status de `STATUS_CONHECIDOS` confirma que nenhum anúncio é perdido.
+
 `sincronizarAnuncios(statusList)` recebe o array de status selecionados pelo seller, constrói `statusParam = statusList.join(",")` e executa o scan completo via `scroll_id` sem teto fixo de anúncios. Atualiza o `CacheService` com `SINC_STATUS / SINC_COUNT / SINC_MSG` a cada página para que a sidebar faça polling de progresso via `obterStatusSinc()`.
 
 ---
